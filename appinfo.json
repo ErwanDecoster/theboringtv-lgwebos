@@ -1,6 +1,6 @@
 {
   "id": "com.boring.tvhome",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "vendor": "boring",
   "type": "web",
   "main": "index.html",

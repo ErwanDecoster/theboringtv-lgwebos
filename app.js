@@ -142,6 +142,8 @@
   // falls back to just opening the app when there's no match or Wikidata is slow.
   var DEEP = {
     netflix: {prop: 'P1874', params: function (id) { return {contentTarget: 'm=https://www.netflix.com/title/' + id + '&source_type=4'}; }},
+    // JioHotstar: same link LG's voice search sends, minus /watch (that one needs an episode, this opens the show).
+    hotstar: {prop: 'P11049', params: function (id) { return {contentTarget: 'https://livingroom.hotstar.com/' + id + '?utm_source=lgtv&utm_medium=partner_homepage'}; }},
     // Prime takes Amazon's title id (as LG's own voice search sends it); the service finds it by title.
     amazon: {wait: 5000, lookup: function (it) { return svc('primeGti', {title: it.title}).then(function (r) { return r.gti || null; }); },
       params: function (gti) { return {contentTarget: gti}; }}
