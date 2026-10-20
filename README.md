@@ -73,12 +73,12 @@ ares-install --device tvroot /tmp/com.boring.tvhome_*.ipk
 ```bash
 ssh root@<tv-ip> 'ln -sf /media/developer/apps/usr/palm/services/com.boring.tvhome.service/as-home.sh /var/lib/webosbrew/init.d/40-tvhome-as-home && reboot'
 ```
-It also sets the TV's "last input" to TV Home, so after a power cut the TV shows TV Home's loading screen
-instead of Live TV's "Not Programmed" while it boots (the original value is saved in
-`/var/lib/webosbrew/tvhome-last-input.orig`).
+It also sets the TV's "last input" to TV Home and turns off LG's *Home Auto Launch*, so after a power cut the TV
+shows TV Home's loading screen instead of Live TV's "Not Programmed" or LG's home while it boots (the original values
+are saved in `/var/lib/webosbrew/tvhome-last-input.orig`).
 
 Undo: `rm /var/lib/webosbrew/init.d/40-tvhome-as-home`, set the last input back to Live TV with
-`luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"category":"general","settings":{"lastInputApp":"com.webos.app.livetv","physicalLastInputApp":"com.webos.app.livetv"}}'`,
+`luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"category":"general","settings":{"lastInputApp":"com.webos.app.livetv","physicalLastInputApp":"com.webos.app.livetv","homeAutoLaunch":"on"}}'`,
 and restart the TV. The script also hides the regular TV Home
 app from the app list (another RAM-only mount), so before installing an update run
 `ssh root@<tv-ip> 'umount /media/developer/apps/usr/palm/applications/com.boring.tvhome/appinfo.json'`.

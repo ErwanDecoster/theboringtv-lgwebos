@@ -37,9 +37,11 @@ SVC=/media/developer/apps/usr/palm/services/com.boring.tvhome.service/autostart.
 ORIG=/var/lib/webosbrew/tvhome-last-input.orig
 if [ ! -f "$ORIG" ]; then
   luna-send -n 1 -w 5000 luna://com.webos.settingsservice/getSystemSettings \
-    '{"category":"general","keys":["lastInputApp","physicalLastInputApp"]}' >"$ORIG" 2>/dev/null
+    '{"category":"general","keys":["lastInputApp","physicalLastInputApp","homeAutoLaunch"]}' >"$ORIG" 2>/dev/null
 fi
+# homeAutoLaunch off too: when power returns at the plug, webOS otherwise opens the home app directly,
+# before this script has swapped it, so LG's own home would show first.
 luna-send -n 1 -w 5000 luna://com.webos.settingsservice/setSystemSettings \
-  '{"category":"general","settings":{"lastInputApp":"com.boring.tvhome","physicalLastInputApp":"com.boring.tvhome"}}' >/dev/null 2>&1 &&
+  '{"category":"general","settings":{"lastInputApp":"com.boring.tvhome","physicalLastInputApp":"com.boring.tvhome","homeAutoLaunch":"off"}}' >/dev/null 2>&1 &&
   echo "boot input set to TV Home" >>"$LOG"
 exit 0
