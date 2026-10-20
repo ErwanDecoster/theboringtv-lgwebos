@@ -6,7 +6,10 @@
 var Service = require('webos-service');
 var fs = require('fs');
 
-var APP_ID = 'com.boring.tvhome';
+// With as-home.sh, TV Home *is* com.webos.app.home. Native apps like Netflix don't hand the Home key to the
+// system, so we still watch the remote and open the home app ourselves.
+var TAKEOVER = fs.existsSync('/usr/palm/applications/com.webos.app.home/index.html');
+var APP_ID = TAKEOVER ? 'com.webos.app.home' : 'com.boring.tvhome';
 var HOME_CODE = 773; // HOME on LG Magic Remotes (confirmed on the 55UR8040)
 var EV_KEY = 1, EVENT_SIZE = 16; // 32-bit struct input_event
 var LOG = '/tmp/tvhome-svc.log';
@@ -17,7 +20,7 @@ function log(msg) { try { fs.appendFileSync(LOG, '[' + new Date().toISOString() 
 if (process.argv.indexOf('--disable-timeouts') === -1) process.argv.push('--disable-timeouts');
 var service = new Service('com.boring.tvhome.service');
 try { fs.writeFileSync('/tmp/tvhome-svc.pid', String(process.pid)); } catch (e) { /* ignore */ }
-log('start pid=' + process.pid + ' args=' + ARGS.join(' '));
+log('start pid=' + process.pid + ' args=' + ARGS.join(' ') + ' app=' + APP_ID);
 service.register('status', function (m) { m.respond({returnValue: true, running: true, pid: process.pid}); });
 
 function launch(reason, cb) {
@@ -28,7 +31,7 @@ function launch(reason, cb) {
 }
 // LG's own home still opens on HOME (we only read the key) and finishes animating in after our
 // first launch, covering TV Home. So launch again once it has appeared. Tune the delays if needed.
-var HOME_DELAYS = [400, 1300];
+var HOME_DELAYS = TAKEOVER ? [150] : [400, 1300]; // with the takeover there is no LG home to wait for
 var busy = false;
 function onHome() {
   if (busy) return;

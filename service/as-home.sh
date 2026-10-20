@@ -26,15 +26,8 @@ sed "$HIDE" "$SRC/appinfo.json" >/tmp/tvhome-regular-appinfo.json &&
 # Restart it so it re-reads com.webos.app.home from the mount (systemd brings it straight back).
 systemctl restart sam >>"$LOG" 2>&1 && echo "restarted sam" >>"$LOG"
 
-# The TV starts on its last input (often Live TV, which shows a no-signal screen without an antenna).
-# Open the home app (now TV Home) once the app manager is up; retries for ~90s in the background.
-(
-  i=0
-  while [ $i -lt 45 ]; do
-    if luna-send -n 1 -w 3000 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}' 2>/dev/null | grep -q '"returnValue": *true'; then
-      echo "boot launch ok after $i tries" >>"$LOG"; break
-    fi
-    i=$((i + 1)); sleep 2
-  done
-) </dev/null >/dev/null 2>&1 &
+# Start the TV Home service: it opens the home app (now TV Home) at boot, so the TV doesn't start on the
+# Live TV no-signal screen, and on every Home press, which native apps like Netflix don't pass to the system.
+SVC=/media/developer/apps/usr/palm/services/com.boring.tvhome.service/autostart.sh
+[ -f "$SVC" ] && sh "$SVC" </dev/null >/dev/null 2>&1 && echo "started TV Home service" >>"$LOG"
 exit 0
