@@ -191,7 +191,7 @@
     renderSettings(); $('spanel').hidden = $('sdim').hidden = false; pos.r = 1; pos.c = 0; mem = {}; view = 'settings'; buildNav();
   }
   function closeSettings() {
-    if (dirty) { store('settings', draft); location.reload(); return; }
+    if (dirty) { store('settings', draft); store('homeCache', null); location.reload(); return; }
     $('spanel').hidden = $('sdim').hidden = true; pos.r = 0; setView(prevView);
   }
   function choose(e) {
@@ -429,7 +429,25 @@
   if (P.color) $('avatar').style.background = P.color;
   window.dispatchEvent(new Event('tvready'));
 
+  // Relaunch (Home button, or opening TV Home again): appinfo's handlesRelaunch keeps the page alive
+  // instead of reloading it behind a splash, so bring ourselves forward and go back to the top of For you.
+  document.addEventListener('webOSRelaunch', function () {
+    try { window.PalmSystem.activate(); } catch (e) { /* not on webOS */ }
+    if (!$('qpanel').hidden) closeQuick();
+    if (!$('spanel').hidden) { $('spanel').hidden = $('sdim').hidden = true; }
+    while (views[view]) closeView();
+    if (view !== 'home') setView('home');
+    pos.r = 1; pos.c = 0; buildNav();
+  });
+
   // ---------- boot ----------
+  // Draw the last home screen straight away (webOS often kills us in the background, so most
+  // opens are cold starts), then replace it with fresh data. Kept per profile via store().
+  var cached = store('homeCache');
+  if (cached && cached.base && cached.base.length) {
+    heroItems = cached.hero; base = cached.base;
+    buildRows(); showHero(); pos.r = 1; focus();
+  }
   loadApps().then(function () {
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
     return Promise.all([
@@ -443,8 +461,10 @@
       heroItems = picks.slice(0, 6);
       base = [{title: 'Top picks for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
         .concat((r[1] || []).filter(Boolean), r[2] ? [r[2]] : []);
+      store('homeCache', {hero: heroItems, base: base});
+      var fresh = !cached; // keep the user's place if they already started moving around the cached screen
       buildRows(); showHero();
-      pos.r = 1; focus();
+      if (fresh) { pos.r = 1; focus(); }
     });
   });
 })();
