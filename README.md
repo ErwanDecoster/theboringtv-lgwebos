@@ -90,6 +90,24 @@ ssh root@<tv-ip> 'D=/media/developer/apps/usr/palm/services/com.boring.tvhome.se
 Use one option, not both. `HOME_CODE` in `service/service.js` is 773 on LG Magic Remotes; raise `HOME_DELAYS` if
 LG's home still covers TV Home.
 
+## Rooted extras: real apps, picture and sound, inputs, remote control
+With the service running (rooted TV), it also gives TV Home what a normal app can't get. It runs as root and
+calls a fixed list of system methods, which the page reaches over the TV's loopback (`127.0.0.1:45620`):
+- **Your apps** shows every installed app with its real icon, not the list in `config.js`.
+- **Quick settings** gets picture mode, sound mode, brightness, a row of inputs (HDMI names, connected ones
+  first) and **Screen off**, which keeps audio playing; any remote key turns the screen back on.
+
+`tools/tv` controls the TV from your computer over SSH:
+```bash
+export TV_IP=192.168.1.50 TV_MAC=aa:bb:cc:dd:ee:ff   # your TV; the MAC is only needed for "on"
+tools/tv volume 20        # or up, down, mute, unmute
+tools/tv input hdmi1
+tools/tv launch netflix   # tools/tv apps lists ids
+tools/tv picture cinema   # backlight 0-100, sound movie, screen-off, home, off, on, status
+```
+For Home Assistant, its built-in **LG webOS Smart TV** integration already controls power, volume, inputs and apps
+over the TV's own network API, with no root needed. Use `tools/tv` (from a shell command) for the extras.
+
 ## Limits
 - Without root it's an app, not the system launcher: the Home button opens LG's home.
 - webOS still shows a short splash (TV Home's own dark one) when it has to start TV Home from scratch.

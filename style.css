@@ -191,3 +191,5 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
 .wxd em { width: 64px; text-align: right; font-style: normal; color: #9aa0a6; }
 .wxfoot { position: absolute; left: 34px; right: 34px; bottom: 30px; display: flex; align-items: center; justify-content: space-between; }
 .wxfoot small { font-size: 15px; color: #80868b; }
+.qinputs { flex-wrap: wrap; margin-top: 4px; }
+.qinputs .chip { margin: 0 10px 10px 0; }

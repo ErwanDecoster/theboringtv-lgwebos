@@ -46,8 +46,26 @@
 
   // ---------- apps: the TV denies listLaunchPoints to non-system apps, so probe our list ----------
   var apps = [];
+  // Root helpers in the TV Home service (service/service.js), reached over the TV's loopback.
+  function svc(name, params) {
+    return fetch('http://127.0.0.1:45620/' + name, {method: 'POST', body: JSON.stringify(params || {})})
+      .then(function (r) { return r.json(); });
+  }
   function loadApps() {
     if (!onTV) { apps = C.APPS.slice(); return Promise.resolve(); }
+    // Real installed apps and icons when the service is running (rooted TV); otherwise probe config.js's list.
+    return svc('getApps').then(function (r) {
+      if (!r.apps || !r.apps.length) throw new Error('no apps');
+      var icons = {};
+      try { icons = JSON.parse(localStorage.appIcons || '{}'); } catch (e) { /* storage unavailable */ }
+      apps = r.apps;
+      return Promise.all(apps.map(function (a) {
+        if (icons[a.id]) { a.img = icons[a.id]; return null; }
+        return svc('getIcon', {id: a.id}).then(function (i) { if (i.icon) a.img = icons[a.id] = i.icon; }, function () {});
+      })).then(function () { try { localStorage.appIcons = JSON.stringify(icons); } catch (e) { /* too big or blocked */ } });
+    }).catch(probeApps);
+  }
+  function probeApps() {
     return Promise.all(C.APPS.map(function (a) {
       return luna('com.webos.applicationManager/getAppLoadStatus', {appId: a.id})
         .then(function (r) { return r.exist ? a : null; }, function () { return a; });
@@ -143,7 +161,7 @@
   function appTile(a) {
     var t = el('div', 'app f');
     t.innerHTML = '<div class="disc" style="background:' + a.color + '">' +
-      (a.icon ? '<img src="icons/' + a.icon + '" alt="" decoding="async">' : '<span class="txt">' + esc(a.title) + '</span>') + '</div><div class="cap">' + esc(a.title) + '</div>';
+      (a.img || a.icon ? '<img src="' + (a.img || 'icons/' + a.icon) + '" alt="" decoding="async">' : '<span class="txt">' + esc(a.title) + '</span>') + '</div><div class="cap">' + esc(a.title) + '</div>';
     t.onok = function () { launch(a.id); };
     return t;
   }
@@ -221,6 +239,25 @@
     luna('com.webos.service.audio/getSoundOutput').then(function (r) { setText('qaudio', OUTPUTS[r.soundOutput] || r.soundOutput); }, function () {});
     luna('com.webos.service.bluetooth2/adapter/getStatus').then(function (r) { setText('qbt', r.adapters && r.adapters[0] && r.adapters[0].powered ? 'On' : 'Off'); }, function () {});
     luna('com.webos.audio/getVolume').then(function (r) { setText('qvol', r.muteStatus ? 'Muted' : r.volume); }, function () {});
+    svc('getAv').then(function (r) {
+      av.pic = r.picture.pictureMode; av.snd = r.sound.soundMode; av.bl = +r.picture.backlight;
+      setText('qpic', label(PICS, av.pic)); setText('qsnd', label(SOUNDS, av.snd)); setText('qbl', isNaN(av.bl) ? '–' : av.bl);
+    }, function () { setText('qpic', 'Needs root'); setText('qsnd', 'Needs root'); });
+    svc('getInputs').then(function (r) {
+      $('qinputs').innerHTML = r.inputs.filter(function (i) { return i.connected || /hdmi/i.test(i.id); }).map(function (i) {
+        return '<span class="chip f' + (i.active ? ' sel' : '') + '" data-q="input" data-id="' + esc(i.id) + '">' + esc(i.label) + (i.connected ? '' : ' ·') + '</span>';
+      }).join('');
+      if (view === 'quick') buildNav();
+    }, function () { $('qinputs').innerHTML = '<span class="chip f" data-q="inputs">Inputs</span>'; if (view === 'quick') buildNav(); });
+  }
+  // Picture / sound modes this TV offers (an unsupported one is skipped with a toast).
+  var PICS = [['vivid', 'Vivid'], ['normal', 'Standard'], ['eco', 'Eco'], ['cinema', 'Cinema'], ['sports', 'Sports'], ['game', 'Game'], ['filmMaker', 'Filmmaker']];
+  var SOUNDS = [['aiSoundPlus', 'AI Sound Pro'], ['standard', 'Standard'], ['movie', 'Cinema'], ['news', 'Clear Voice'], ['music', 'Music'], ['game', 'Game']];
+  var av = {};
+  function label(list, v) { for (var i = 0; i < list.length; i++) if (list[i][0] === v) return list[i][1]; return v || ''; }
+  function next(list, v) { for (var i = 0; i < list.length; i++) if (list[i][0] === v) return list[(i + 1) % list.length][0]; return list[0][0]; }
+  function setAv(method, params, ok) {
+    svc(method, params).then(function (r) { r.returnValue === false ? toast('Not supported on this TV') : ok(); }, function () { toast('Needs the TV Home service (rooted TV)'); });
   }
   function openQuick() {
     prevView = view; refreshQuick();
@@ -231,7 +268,7 @@
   function volume(dir) {
     luna('com.webos.service.audio/master/' + dir).then(function (r) { setText('qvol', r.volume); }, function (e) { toast('Volume: ' + (e.errorText || e)); });
   }
-  function quickAct(q) {
+  function quickAct(q, btn) {
     var tvSettings = function (target) { launch('com.palm.app.settings', {target: target}); };
     ({
       settings: function () { closeQuick(); openSettings(); },
@@ -243,6 +280,12 @@
       a11y: function () { tvSettings('accessibility'); },
       audio: function () { tvSettings('sound'); },
       bluetooth: function () { tvSettings('bluetooth'); },
+      picture: function () { var m = next(PICS, av.pic); setAv('setPicture', {pictureMode: m}, function () { av.pic = m; setText('qpic', label(PICS, m)); }); },
+      sound: function () { var m = next(SOUNDS, av.snd); setAv('setSound', {soundMode: m}, function () { av.snd = m; setText('qsnd', label(SOUNDS, m)); }); },
+      bldown: function () { var b = Math.max(0, (av.bl || 0) - 10); setAv('setPicture', {backlight: b}, function () { av.bl = b; setText('qbl', b); }); },
+      blup: function () { var b = Math.min(100, (av.bl || 0) + 10); setAv('setPicture', {backlight: b}, function () { av.bl = b; setText('qbl', b); }); },
+      screenoff: function () { closeQuick(); svc('screenOff').then(function () {}, function () { toast('Needs the TV Home service (rooted TV)'); }); },
+      input: function () { closeQuick(); launch(btn.dataset.id); },
       voldown: function () { volume('volumeDown'); },
       volup: function () { volume('volumeUp'); }
     })[q]();
@@ -335,7 +378,7 @@
     if (e.id === 'avatar') return TV.onAvatar();
     if (e.dataset.act === 'settings') return openQuick();
     if (e.dataset.act === 'weather') return openView('weather');
-    if (e.dataset.q) return quickAct(e.dataset.q);
+    if (e.dataset.q) return quickAct(e.dataset.q, e);
     if (e.dataset.r) return choose(e);
     if (e.id === 'sclose') return closeSettings();
     if (e.id === 'heroBtn') return TV.itemOk(heroItems[heroIdx]);

@@ -23,6 +23,74 @@ try { fs.writeFileSync('/tmp/tvhome-svc.pid', String(process.pid)); } catch (e) 
 log('start pid=' + process.pid + ' args=' + ARGS.join(' ') + ' app=' + APP_ID);
 service.register('status', function (m) { m.respond({returnValue: true, running: true, pid: process.pid}); });
 
+// ---- Privileged helpers for the TV Home page. The page's own app id isn't allowed these calls, but this
+// service runs as root, and root's luna-send is. A fixed list of methods, never a pass-through.
+var cp = require('child_process');
+var screenIsOff = false; // set by screenOff; the next key press turns the screen back on (see watchAll)
+function lunaRoot(uri, params) {
+  return new Promise(function (ok) {
+    cp.execFile('luna-send', ['-n', '1', '-w', '5000', uri, JSON.stringify(params || {})], {timeout: 8000, maxBuffer: 4 << 20}, function (e, out) {
+      try { ok(JSON.parse(out)); } catch (x) { ok({returnValue: false, errorText: String(e ? e.message : out).slice(0, 200)}); }
+    });
+  });
+}
+var iconCache = {};
+function iconData(path) { // launch-point icons live in other apps' folders the page can't read
+  if (!path) return '';
+  if (iconCache[path] === undefined) {
+    try { iconCache[path] = 'data:image/png;base64,' + fs.readFileSync(path).toString('base64'); } catch (e) { iconCache[path] = ''; }
+  }
+  return iconCache[path];
+}
+var SKIP_APPS = ['com.webos.app.home', 'com.boring.tvhome'];
+var iconPath = {}; // app id -> icon file, filled by getApps; getIcon only serves these (no arbitrary file reads)
+var api = {
+  getApps: function () {
+    return lunaRoot('luna://com.webos.applicationManager/listLaunchPoints').then(function (r) {
+      return {returnValue: !!r.launchPoints, apps: (r.launchPoints || []).filter(function (p) { return !p.hidden && SKIP_APPS.indexOf(p.id) < 0; })
+        .map(function (p) { iconPath[p.id] = p.mediumLargeIcon || p.largeIcon || p.icon; return {id: p.id, title: p.title, color: p.bgColor || p.iconColor}; })};
+    });
+  },
+  getIcon: function (p) { return Promise.resolve({returnValue: true, icon: iconData(iconPath[p.id])}); },
+  getInputs: function () {
+    return lunaRoot('luna://com.webos.service.eim/getAllInputStatus').then(function (r) {
+      return {returnValue: !!r.devices, inputs: (r.devices || []).map(function (d) { return {id: d.appId, label: d.label, connected: d.connected, active: d.activate}; })};
+    });
+  },
+  getAv: function () {
+    return Promise.all([
+      lunaRoot('luna://com.webos.settingsservice/getSystemSettings', {category: 'picture', keys: ['pictureMode', 'backlight']}),
+      lunaRoot('luna://com.webos.settingsservice/getSystemSettings', {category: 'sound', keys: ['soundMode']})
+    ]).then(function (r) { return {returnValue: true, picture: r[0].settings || {}, sound: r[1].settings || {}}; });
+  },
+  setPicture: function (p) { // {pictureMode} or {backlight}
+    var s = {};
+    if (p.pictureMode) s.pictureMode = String(p.pictureMode);
+    if (p.backlight != null) s.backlight = String(Math.max(0, Math.min(100, +p.backlight)));
+    return lunaRoot('luna://com.webos.settingsservice/setSystemSettings', {category: 'picture', settings: s});
+  },
+  setSound: function (p) { return lunaRoot('luna://com.webos.settingsservice/setSystemSettings', {category: 'sound', settings: {soundMode: String(p.soundMode)}}); },
+  screenOff: function () { return lunaRoot('luna://com.webos.service.tvpower/power/turnOffScreen', {}).then(function (r) { screenIsOff = r.returnValue !== false; return r; }); },
+  screenOn: function () { return lunaRoot('luna://com.webos.service.tvpower/power/turnOnScreen', {}); }
+};
+Object.keys(api).forEach(function (name) {
+  service.register(name, function (m) { api[name](m.payload || {}).then(function (r) { m.respond(r); }); });
+});
+// Same methods over HTTP on the TV's loopback only: TV Home running as com.webos.app.home isn't in this
+// service's luna permission group, but it can fetch() this. POST /<method> with a JSON body.
+var API_PORT = 45620;
+require('http').createServer(function (req, res) {
+  var name = req.url.slice(1).split('?')[0], body = '';
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'application/json');
+  if (!api[name]) { res.statusCode = 404; return res.end('{"returnValue":false,"errorText":"unknown method"}'); }
+  req.on('data', function (c) { body += c; if (body.length > 1e4) req.destroy(); });
+  req.on('end', function () {
+    var p = {}; try { p = JSON.parse(body || '{}'); } catch (e) { /* empty params */ }
+    api[name](p).then(function (r) { res.end(JSON.stringify(r)); });
+  });
+}).listen(API_PORT, '127.0.0.1', function () { log('api on 127.0.0.1:' + API_PORT); });
+
 function launch(reason, cb) {
   service.call('luna://com.webos.applicationManager/launch', {id: APP_ID}, function (m) {
     log('launch (' + reason + '): ' + JSON.stringify(m && m.payload));
@@ -59,6 +127,7 @@ function watchAll() {
       for (var off = 0; off + EVENT_SIZE <= n; off += EVENT_SIZE) {
         if (buf.readUInt16LE(off + 8) !== EV_KEY || buf.readInt32LE(off + 12) !== 1) continue;
         var code = buf.readUInt16LE(off + 10);
+        if (screenIsOff) { screenIsOff = false; api.screenOn(); log('screen on (key ' + code + ')'); continue; }
         if (code === HOME_CODE) { log('HOME key'); onHome(); }
       }
     }
