@@ -143,20 +143,28 @@
   var DEEP = {
     netflix: {prop: 'P1874', params: function (id) { return {contentTarget: 'm=https://www.netflix.com/title/' + id + '&source_type=4'}; }},
     // JioHotstar: same link LG's voice search sends, minus /watch (that one needs an episode, this opens the show).
-    hotstar: {prop: 'P11049', params: function (id) { return {contentTarget: 'https://livingroom.hotstar.com/' + id + '?utm_source=lgtv&utm_medium=partner_homepage'}; }},
+    hotstar: {prop: 'P11049', wait: 5000,
+      lookup: function (it) { // JustWatch first (via the service), Wikidata if that finds nothing
+        return svc('justwatchId', {title: it.title, tmdbId: it.tmdb.id, provider: 'hotstar'})
+          .then(function (r) { return r.id || wikidataId(it, 'P11049'); }, function () { return wikidataId(it, 'P11049'); });
+      },
+      params: function (id) { return {contentTarget: 'https://livingroom.hotstar.com/' + id + '?utm_source=lgtv&utm_medium=partner_homepage'}; }},
     // Prime takes Amazon's title id (as LG's own voice search sends it); the service finds it by title.
     amazon: {wait: 5000, lookup: function (it) { return svc('primeGti', {title: it.title}).then(function (r) { return r.gti || null; }); },
       params: function (gti) { return {contentTarget: gti}; }}
   };
+  function wikidataId(it, prop) {
+    var q = 'SELECT ?v WHERE { ?i wdt:' + (it.tmdb.type === 'movie' ? 'P4947' : 'P4983') + ' "' + it.tmdb.id + '" ; wdt:' + prop + ' ?v } LIMIT 1';
+    return get('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q))
+      .then(function (r) { var b = r.results.bindings[0]; return b ? b.v.value : null; });
+  }
   function deepParams(it, app) {
     var d = DEEP[app];
     if (!d || !it.tmdb) return Promise.resolve(null);
-    var key = app + ':' + it.tmdb.type + ':' + it.tmdb.id, cache = {};
+    var key = 'v2:' + app + ':' + it.tmdb.type + ':' + it.tmdb.id, cache = {}; // v2: JustWatch added, retry old misses
     try { cache = JSON.parse(localStorage.deepIds || '{}'); } catch (e) { /* storage unavailable */ }
     if (key in cache) return Promise.resolve(cache[key] && d.params(cache[key]));
-    var q = 'SELECT ?v WHERE { ?i wdt:' + (it.tmdb.type === 'movie' ? 'P4947' : 'P4983') + ' "' + it.tmdb.id + '" ; wdt:' + d.prop + ' ?v } LIMIT 1';
-    var find = d.lookup ? d.lookup(it) : get('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q))
-      .then(function (r) { var b = r.results.bindings[0]; return b ? b.v.value : null; });
+    var find = d.lookup ? d.lookup(it) : wikidataId(it, d.prop);
     var lookup = find.then(function (id) {
       cache[key] = id;
       try { localStorage.deepIds = JSON.stringify(cache); } catch (e) { /* storage unavailable */ }

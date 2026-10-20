@@ -96,6 +96,39 @@ var api = {
       }).on('error', function () { ok({returnValue: false}); }).on('timeout', function () { this.destroy(); });
     });
   },
+  // A service's own title id from JustWatch (the data behind TMDB's "where to watch"): search by title,
+  // keep the result with the same TMDB id, and take the id from that service's offer URL.
+  // {title, tmdbId, provider: 'hotstar'} -> {id}
+  justwatchId: function (p) {
+    var q = 'query($c:Country!,$l:Language!,$q:String!){popularTitles(country:$c,first:5,filter:{searchQuery:$q}){edges{node{... on MovieOrShow{' +
+      'content(country:$c,language:$l){externalIds{tmdbId}} offers(country:$c,platform:WEB){standardWebURL}}}}}}';
+    var body = JSON.stringify({query: q, variables: {c: 'IN', l: 'en', q: String(p.title || '')}});
+    return new Promise(function (ok) {
+      var req = require('https').request('https://apis.justwatch.com/graphql', {method: 'POST', timeout: 6000,
+        headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}}, function (res) {
+        var out = '';
+        res.setEncoding('utf8');
+        res.on('data', function (c) { out += c; });
+        res.on('end', function () {
+          var id = null;
+          try {
+            JSON.parse(out).data.popularTitles.edges.some(function (e) {
+              if (String(e.node.content.externalIds.tmdbId) !== String(p.tmdbId)) return false;
+              return e.node.offers.some(function (o) {
+                var m = o.standardWebURL && o.standardWebURL.indexOf(p.provider) >= 0 && o.standardWebURL.match(/\/(\d{6,})(?:[/?]|$)/);
+                if (m) id = m[1];
+                return !!m;
+              });
+            });
+          } catch (e) { /* unexpected reply: no id */ }
+          log('justwatchId ' + p.provider + ' ' + p.title + ' -> ' + id);
+          ok({returnValue: !!id, id: id});
+        });
+      });
+      req.on('error', function () { ok({returnValue: false}); }).on('timeout', function () { req.destroy(); });
+      req.end(body);
+    });
+  },
   screenOn: function () { return lunaRoot('luna://com.webos.service.tvpower/power/turnOnScreen', {}); }
 };
 Object.keys(api).forEach(function (name) {
