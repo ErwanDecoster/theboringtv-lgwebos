@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TV Home</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="features/details.css">
+<link rel="stylesheet" href="features/search.css">
+<link rel="stylesheet" href="features/ambient.css">
+<link rel="stylesheet" href="features/profiles.css">
+</head>
+<body>
+<div id="bg"><img id="bgA" alt=""><img id="bgB" alt=""></div>
+<img id="bgBlur" alt="">
+<div id="shade"></div>
+
+<header id="top">
+  <div class="avatar f" id="avatar"></div>
+  <nav class="pill">
+    <span class="tab f" data-tab="home">For you</span>
+    <span class="tab f" data-act="live">Live</span>
+    <span class="tab f" data-tab="apps">Apps</span>
+  </nav>
+  <nav class="pill icons"><span class="ico f" data-act="settings">
+    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+  </span></nav>
+  <div id="clock"></div>
+</header>
+
+<main id="home">
+  <section id="hero">
+    <div id="heroSrc"></div>
+    <h1 id="heroTitle"></h1>
+    <div id="heroMeta"></div>
+    <p id="heroSub"></p>
+    <span id="heroBtn" class="f">Open</span>
+    <div id="dots"></div>
+  </section>
+  <div id="rows"></div>
+</main>
+
+<main id="apps" hidden><h2>Your apps</h2><div id="grid"></div></main>
+
+<div id="qdim" hidden></div>
+<div id="qpanel" hidden><div id="quick">
+  <div class="qrow qhead"><div class="qclock"><div id="qdate"></div><div id="qtime"></div></div>
+    <span class="qbtn f" data-q="settings"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></span><span class="avatar f qav" data-q="close"></span></div>
+  <div class="qrow"><span class="tile f" data-q="screensaver"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z"/></svg><span class="tl"><b>Screensaver</b></span></span><span class="tile f" data-q="wifi"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21l3.6-4.8a6 6 0 0 0-7.2 0zM1 9l2 2a12.7 12.7 0 0 1 18 0l2-2A15.5 15.5 0 0 0 1 9zm4 4 2 2a7 7 0 0 1 10 0l2-2a9.9 9.9 0 0 0-14 0z"/></svg><span class="tl"><b>Wi-Fi</b><small id="qwifi"></small></span></span></div>
+  <div class="qrow"><span class="tile f" data-q="inputs"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M21 3H3a2 2 0 0 0-2 2v4h2V5h18v14H3v-4H1v4a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM11 16l4-4-4-4v3H1v2h10v3z"/></svg><span class="tl"><b>Inputs</b></span></span><span class="tile f" data-q="a11y"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/></svg><span class="tl"><b>Accessibility</b></span></span></div>
+  <div class="qrow"><span class="tile f" data-q="audio"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h3v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h3a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z"/></svg><span class="tl"><b>Audio output</b><small id="qaudio"></small></span></span><span class="tile f" data-q="bluetooth"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.7 7.7 12 2h-1v7.6L6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l4.6-4.6V22h1l5.7-5.7-4.3-4.3 4.3-4.3zM13 5.8l1.9 1.9L13 9.6V5.8zm1.9 10.5L13 18.2v-3.8l1.9 1.9z"/></svg><span class="tl"><b>Bluetooth</b><small id="qbt"></small></span></span></div>
+  <div class="qrow qvol"><span class="tile f vbtn" data-q="voldown">&minus;</span><div class="vlabel">Volume <b id="qvol">&ndash;</b></div><span class="tile f vbtn" data-q="volup">+</span></div>
+  <div class="qrow"><div class="tip f" data-q="tip"><h5>Tip of the day</h5><svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 21h6v-1H9v1zm3-19a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg><b>Get better recommendations</b>
+    <p>Recommendations come from your languages and streaming services. View and change them now.</p></div></div>
+  <div class="qfoot">TV Home</div>
+</div></div>
+<div id="sdim" hidden></div>
+<div id="spanel" hidden><div id="settings"></div></div>
+<div id="toast"></div>
+<script src="keys.js"></script>
+<script src="config.js"></script>
+<script src="features/profiles.js"></script>
+<script src="app.js"></script>
+<script src="features/details.js"></script>
+<script src="features/search.js"></script>
+<script src="features/ambient.js"></script>
+</body>
+</html>
