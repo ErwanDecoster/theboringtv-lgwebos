@@ -75,11 +75,12 @@ ssh root@<tv-ip> 'ln -sf /media/developer/apps/usr/palm/services/com.boring.tvho
 ```
 It also sets the TV's "last input" to TV Home, so boots that would open Live TV ("Not Programmed" without an antenna)
 open TV Home's loading screen instead (the original value is saved in `/var/lib/webosbrew/tvhome-last-input.orig`).
-LG's *Home Auto Launch* stays on: it's what shows the LG logo and webOS boot animation, after which LG's own home
-appears briefly until the swap.
+It also turns off LG's *Home Auto Launch*, so a power cut behaves like a restart: a black screen, then TV Home's
+loading screen, and LG's own home never shows. The trade-off is that webOS's boot animation no longer plays (it only
+runs on the Home Auto Launch path, which would otherwise open LG's home before the swap).
 
 Undo: `rm /var/lib/webosbrew/init.d/40-tvhome-as-home`, set the last input back to Live TV with
-`luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"category":"general","settings":{"lastInputApp":"com.webos.app.livetv","physicalLastInputApp":"com.webos.app.livetv"}}'`,
+`luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"category":"general","settings":{"lastInputApp":"com.webos.app.livetv","physicalLastInputApp":"com.webos.app.livetv","homeAutoLaunch":"on"}}'`,
 and restart the TV. The script also hides the regular TV Home
 app from the app list (another RAM-only mount), so before installing an update run
 `ssh root@<tv-ip> 'umount /media/developer/apps/usr/palm/applications/com.boring.tvhome/appinfo.json'`.
