@@ -30,4 +30,16 @@ systemctl restart sam >>"$LOG" 2>&1 && echo "restarted sam" >>"$LOG"
 # Live TV no-signal screen, and on every Home press, which native apps like Netflix don't pass to the system.
 SVC=/media/developer/apps/usr/palm/services/com.boring.tvhome.service/autostart.sh
 [ -f "$SVC" ] && sh "$SVC" </dev/null >/dev/null 2>&1 && echo "started TV Home service" >>"$LOG"
+
+# After a power cut webOS shows the "last input" first (often Live TV: "Not Programmed" without an antenna)
+# until this script can run, ~50s in. Point the last input at TV Home so the next boot shows TV Home's
+# loading screen instead. The original value is saved once (see the README to restore it).
+ORIG=/var/lib/webosbrew/tvhome-last-input.orig
+if [ ! -f "$ORIG" ]; then
+  luna-send -n 1 -w 5000 luna://com.webos.settingsservice/getSystemSettings \
+    '{"category":"general","keys":["lastInputApp","physicalLastInputApp"]}' >"$ORIG" 2>/dev/null
+fi
+luna-send -n 1 -w 5000 luna://com.webos.settingsservice/setSystemSettings \
+  '{"category":"general","settings":{"lastInputApp":"com.boring.tvhome","physicalLastInputApp":"com.boring.tvhome"}}' >/dev/null 2>&1 &&
+  echo "boot input set to TV Home" >>"$LOG"
 exit 0

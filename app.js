@@ -722,12 +722,14 @@
   // ---------- boot ----------
   // Draw the last home screen straight away (webOS often kills us in the background, so most
   // opens are cold starts), then replace it with fresh data. Kept per profile via store().
+  function booted() { var b = $('boot'); if (b) { b.classList.add('gone'); setTimeout(function () { b.remove(); }, 600); } }
   var cached = store('homeCache');
   if (cached && cached.base && cached.base.length) {
     heroItems = cached.hero; base = cached.base;
-    buildRows(); showHero(); pos.r = 1; focus();
+    buildRows(); showHero(); pos.r = 1; focus(); booted();
   }
-  loadApps().then(function () {
+  var tries = 0;
+  function loadHome() { return loadApps().then(function () {
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
     return Promise.all([
       safe(trending()),
@@ -738,14 +740,19 @@
       S.youtube ? safe(youtube()) : null
     ]).then(function (r) {
       var picks = mergePicks(r[1] || [], r[0] || []); // JustWatch first, then TMDB
+      if (!picks.length && !(r[2] || []).filter(Boolean).length) { // nothing yet (early boot, network not up): retry
+        if (++tries < 40) { if (!cached) setText('bootmsg', 'Waiting for the internet…'); setTimeout(loadHome, 5000); }
+        return;
+      }
       r.splice(1, 1); // keep the indexes below as they were
       heroItems = picks.slice(0, 6);
       base = [{title: 'Top picks for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
         .concat((r[1] || []).filter(Boolean), r[2] ? [r[2]] : []);
       store('homeCache', {hero: heroItems, base: base});
       var fresh = !cached; // keep the user's place if they already started moving around the cached screen
-      buildRows(); showHero();
+      buildRows(); showHero(); booted();
       if (fresh) { pos.r = 1; focus(); }
     });
-  });
+  }); }
+  loadHome();
 })();

@@ -73,12 +73,18 @@ ares-install --device tvroot /tmp/com.boring.tvhome_*.ipk
 ```bash
 ssh root@<tv-ip> 'ln -sf /media/developer/apps/usr/palm/services/com.boring.tvhome.service/as-home.sh /var/lib/webosbrew/init.d/40-tvhome-as-home && reboot'
 ```
-Undo: `rm /var/lib/webosbrew/init.d/40-tvhome-as-home` and restart the TV. The script also hides the regular TV Home
+It also sets the TV's "last input" to TV Home, so after a power cut the TV shows TV Home's loading screen
+instead of Live TV's "Not Programmed" while it boots (the original value is saved in
+`/var/lib/webosbrew/tvhome-last-input.orig`).
+
+Undo: `rm /var/lib/webosbrew/init.d/40-tvhome-as-home`, set the last input back to Live TV with
+`luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"category":"general","settings":{"lastInputApp":"com.webos.app.livetv","physicalLastInputApp":"com.webos.app.livetv"}}'`,
+and restart the TV. The script also hides the regular TV Home
 app from the app list (another RAM-only mount), so before installing an update run
 `ssh root@<tv-ip> 'umount /media/developer/apps/usr/palm/applications/com.boring.tvhome/appinfo.json'`.
 
-After unplugging the TV, webOS's boot manager starts LG's home first (that choice is in a read-only system file), so
-LG's home shows for a few seconds until the script swaps it. Turning the TV on with the remote doesn't do a cold boot
+After a power cut, webOS shows the last input for the first ~50 seconds until the script can run; with the setting
+above that's TV Home's loading screen. Turning the TV on with the remote doesn't do a cold boot
 when Quick Start+ is on (Settings → General → Devices → TV Management), so it comes straight back to TV Home. The running copy is TV Home as it was
 at the last boot, so restart after updating TV Home. TV Home running as the home app keeps its own settings and
 history, separate from the regular TV Home app.

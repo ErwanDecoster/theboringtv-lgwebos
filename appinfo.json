@@ -1,6 +1,6 @@
 {
   "id": "com.boring.tvhome",
-  "version": "0.21.0",
+  "version": "0.22.1",
   "vendor": "boring",
   "type": "web",
   "main": "index.html",
@@ -12,7 +12,5 @@
   "disableBackHistoryAPI": true,
   "splashBackground": "splash.png",
   "iconColor": "#16181c",
-  "handlesRelaunch": true,
-  "noSplashOnLaunch": true,
-  "spinnerOnLaunch": false
+  "handlesRelaunch": true
 }
