@@ -199,3 +199,6 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
   padding: 26px 30px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.6); text-align: center; white-space: nowrap; }
 #appmenu h4 { font-size: 24px; font-weight: 500; margin-bottom: 18px; }
 .app.moving .disc { box-shadow: 0 0 0 5px #8ab4f8, 0 0 0 10px rgba(138,180,248,.35); }
+.edit-tile .disc { background: #3c4043; color: #e8eaed; }
+.editing .app:not(.edit-tile) .disc { box-shadow: 0 0 0 3px rgba(232,234,237,.55); outline: 2px dashed rgba(232,234,237,.7); outline-offset: 6px; }
+.editing .app.focus:not(.edit-tile) .disc { box-shadow: 0 0 0 5px #fff; }

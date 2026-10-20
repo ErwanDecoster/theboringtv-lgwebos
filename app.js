@@ -230,10 +230,27 @@
     var t = el('div', 'app f');
     t.innerHTML = '<div class="disc" style="background:' + a.color + '">' +
       (a.img || a.icon ? '<img src="' + (a.img || 'icons/' + a.icon) + '" alt="" decoding="async">' : '<span class="txt">' + esc(a.title) + '</span>') + '</div><div class="cap">' + esc(a.title) + '</div>';
-    t.onok = function () { launch(a.id); };
+    t.onok = function () { editing ? openAppMenu(a) : launch(a.id); };
     t.app = a;
     return t;
   }
+  // Edit mode for the app lists: OK on an app opens Move / Remove instead of launching it.
+  var editing = false;
+  var PENCIL = '<svg viewBox="0 0 24 24" style="width:46px;height:46px"><path fill="currentColor" d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
+  var CHECK = '<svg viewBox="0 0 24 24" style="width:50px;height:50px"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
+  function editTile() {
+    var t = el('div', 'app f edit-tile', '<div class="disc">' + (editing ? CHECK : PENCIL) + '</div><div class="cap">' + (editing ? 'Done' : 'Edit apps') + '</div>');
+    t.onok = function () {
+      editing = !editing;
+      document.body.classList.toggle('editing', editing);
+      if (!editing) endMove();
+      var keep = view; render(); if (keep !== view) setView(keep);
+      var tiles = document.querySelectorAll('.edit-tile'); for (var i = 0; i < tiles.length; i++) if (!tiles[i].offsetParent) continue; else { focusEl(tiles[i]); break; }
+      toast(editing ? 'Edit mode: OK on an app to move or remove it' : 'Done');
+    };
+    return t;
+  }
+  function focusEl(e) { for (var r = 0; r < nav.length; r++) { var c = nav[r].indexOf(e); if (c >= 0) { pos.r = r; pos.c = c; focus(); return; } } }
   function card(it) {
     var c = el('div', 'card f', '<div class="pic"><img src="' + it.img + '" alt="" loading="lazy" decoding="async">' +
       (it.src === 'YouTube' ? '' : '<b class="ttl">' + esc(it.title) + '</b>') + '</div>' +
@@ -247,10 +264,12 @@
       var r = el('section', 'row' + (row.apps ? ' apps-row' : '')), s = el('div', 'strip');
       r.appendChild(el('h3', '', esc(row.title)));
       (row.apps || row.items).forEach(function (x) { s.appendChild(row.apps ? appTile(x) : card(x)); });
+      if (row.apps) s.appendChild(editTile());
       r.appendChild(s); root.appendChild(r);
     });
     var g = $('grid'); g.innerHTML = '';
     visibleApps().forEach(function (a) { g.appendChild(appTile(a)); });
+    g.appendChild(editTile());
     buildNav();
   }
 
@@ -475,7 +494,7 @@
       ev.preventDefault();
       var cur = nav[pos.r][pos.c];
       if (moving) return endMove();
-      if (cur && cur.app && view !== 'appmenu') { // app tile: launch on release, menu if held
+      if (cur && cur.app && view !== 'appmenu' && !editing) { // app tile: launch on release, menu if held
         if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; openAppMenu(cur.app); }, 550);
         return;
       }
@@ -594,7 +613,7 @@
     store('appOrder', list); refreshApps(); focusApp(moving);
     var t = document.querySelector('.focus'); if (t) t.classList.add('moving');
   }
-  function endMove() { moving = null; var t = document.querySelector('.moving'); if (t) t.classList.remove('moving'); toast('Saved'); }
+  function endMove() { if (!moving) return; moving = null; var t = document.querySelector('.moving'); if (t) t.classList.remove('moving'); toast('Saved'); }
 
   // ---------- plugin API (details.js, search.js, ambient.js, profiles.js) ----------
   // A view = {nav() -> rows of focusable elements, show(arg), hide(), onFocus(el, pos)?, back()?, keydown(ev)?}.
