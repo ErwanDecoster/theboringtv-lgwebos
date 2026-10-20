@@ -127,7 +127,7 @@
   var recent = [];
   recent = store('recent') || [];
   function remember(it) {
-    var keep = {title: it.title, sub: it.sub, meta: it.meta, img: it.img, bg: it.bg, blur: it.blur, src: it.src, svc: it.svc, params: it.params, at: Date.now()};
+    var keep = {title: it.title, sub: it.sub, meta: it.meta, img: it.img, bg: it.bg, blur: it.blur, src: it.src, svc: it.svc, params: it.params, tmdb: it.tmdb, at: Date.now()};
     recent = [keep].concat(recent.filter(function (x) { return x.title !== it.title; })).slice(0, 12);
     store('recent', recent);
     buildRows();
@@ -138,12 +138,37 @@
   }
 
   // OK on a title → open the service that streams it.
+  // Deep links: Wikidata maps TMDB ids to a service's own title id (Netflix: P1874). Cached per title;
+  // falls back to just opening the app when there's no match or Wikidata is slow.
+  var DEEP = {
+    netflix: {prop: 'P1874', params: function (id) { return {contentTarget: 'm=https://www.netflix.com/title/' + id + '&source_type=4'}; }}
+  };
+  function deepParams(it, app) {
+    var d = DEEP[app];
+    if (!d || !it.tmdb) return Promise.resolve(null);
+    var key = app + ':' + it.tmdb.type + ':' + it.tmdb.id, cache = {};
+    try { cache = JSON.parse(localStorage.deepIds || '{}'); } catch (e) { /* storage unavailable */ }
+    if (key in cache) return Promise.resolve(cache[key] && d.params(cache[key]));
+    var q = 'SELECT ?v WHERE { ?i wdt:' + (it.tmdb.type === 'movie' ? 'P4947' : 'P4983') + ' "' + it.tmdb.id + '" ; wdt:' + d.prop + ' ?v } LIMIT 1';
+    var lookup = get('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q)).then(function (r) {
+      var b = r.results.bindings[0], id = b ? b.v.value : null;
+      cache[key] = id;
+      try { localStorage.deepIds = JSON.stringify(cache); } catch (e) { /* storage unavailable */ }
+      return id && d.params(id);
+    });
+    var timeout = new Promise(function (ok) { setTimeout(function () { ok(null); }, 2500); });
+    return Promise.race([lookup, timeout]).catch(function () { return null; });
+  }
+  function launchTitle(it, svc) {
+    if (it.params) return launch(svc.app, it.params);
+    deepParams(it, svc.app).then(function (params) { launch(svc.app, params || undefined); });
+  }
   function openItem(it) {
-    if (it.svc) { remember(it); return launch(it.svc.app, it.params); }
+    if (it.svc) { remember(it); return launchTitle(it, it.svc); }
     tmdb(it.tmdb.type + '/' + it.tmdb.id + '/watch/providers').then(function (r) {
       var reg = r.results[C.REGION] || {}, list = (reg.flatrate || []).concat(reg.ads || [], reg.free || []), svc;
       for (var i = 0; i < list.length && !svc; i++) { svc = svcFor(list[i].provider_name); if (svc && S.services.indexOf(svc.name) < 0) svc = null; }
-      svc ? (remember(Object.assign({}, it, {svc: svc})), launch(svc.app)) : toast('“' + it.title + '” isn’t on your services in ' + C.REGION);
+      svc ? (remember(Object.assign({}, it, {svc: svc})), launchTitle(it, svc)) : toast('“' + it.title + '” isn’t on your services in ' + C.REGION);
     }).catch(function () { toast('Could not look up where to watch'); });
   }
 
