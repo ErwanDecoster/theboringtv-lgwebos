@@ -5,19 +5,6 @@
   var IMG = 'https://image.tmdb.org/t/p/';
   var onTV = typeof window.PalmServiceBridge === 'function';
 
-  // Boot: webOS preloads this app hidden ~25s in (it's the "last input"), ~25s before Homebrew Channel can run
-  // the takeover. If that's the case, come to the front now so LG's own home only shows briefly. Guarded so it
-  // never pops up later: regular copy only, preloaded, rooted.flag (written by as-home.sh) present, and the
-  // TV Home service not up yet (it starts with the takeover, ~50s into boot, and stays up).
-  (function bootFront() {
-    var ps = window.PalmSystem;
-    if (!ps || ps.identifier !== 'com.boring.tvhome' || !/"preload"/.test(ps.launchParams || '')) return;
-    var x = new XMLHttpRequest(); // XHR, not fetch: webOS apps read their own file:// files this way
-    x.onload = function () { // the marker exists: ask the service; any reply means it's up, i.e. not early boot
-      fetch('http://127.0.0.1:45620/status', {method: 'POST', body: '{}'}).then(function () {}, function () { ps.activate(); });
-    };
-    x.open('GET', 'rooted.flag'); x.send();
-  })();
   // Set by profiles.js (loaded before this file): {prefix, name, color, extraQ, hideApps}.
   var P = window.TV_PROFILE || {};
   function store(k, v) { // per-profile localStorage; store(k) reads JSON, store(k, v) writes

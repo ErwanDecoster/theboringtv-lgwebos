@@ -18,9 +18,6 @@ sed -i "$HIDE" "$TMP/appinfo.json"
 grep -q '"com.webos.app.home"' "$TMP/appinfo.json" || { echo "appinfo rewrite failed" >"$LOG"; exit 0; }
 mount --bind "$TMP" "$DST" && echo "mounted TV Home over $DST" >"$LOG" || exit 0
 
-# Marker for the app: this TV runs the takeover, so a boot-time preload of TV Home may bring itself forward.
-touch "$SRC/rooted.flag" 2>/dev/null
-
 # Hide the regular TV Home app too, so the app list doesn't show a second TV Home (RAM-only, like the above).
 sed "$HIDE" "$SRC/appinfo.json" >/tmp/tvhome-regular-appinfo.json &&
   mount --bind /tmp/tvhome-regular-appinfo.json "$SRC/appinfo.json" && echo "hid regular TV Home" >>"$LOG"
