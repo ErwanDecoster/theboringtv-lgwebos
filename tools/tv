@@ -32,7 +32,7 @@ case "$1" in
   on)        : "${TV_MAC:?set TV_MAC to turn the TV on with Wake-on-LAN, needs Quick Start+ or Turn on via Wi-Fi}"
              wake "$TV_MAC"
              echo "wake packet sent" ;;
-  off)       luna luna://com.webos.service.tvpower/power/turnOffTV ;;
+  off)       luna luna://com.webos.service.tvpower/power/powerOff '{"reason":"remoteKey"}' ;;
   screen-off) svc screenOff ;;             # any remote key turns it back on
   screen-on) svc screenOn ;;
   volume)    case "$2" in
