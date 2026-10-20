@@ -141,7 +141,10 @@
   // Deep links: Wikidata maps TMDB ids to a service's own title id (Netflix: P1874). Cached per title;
   // falls back to just opening the app when there's no match or Wikidata is slow.
   var DEEP = {
-    netflix: {prop: 'P1874', params: function (id) { return {contentTarget: 'm=https://www.netflix.com/title/' + id + '&source_type=4'}; }}
+    netflix: {prop: 'P1874', params: function (id) { return {contentTarget: 'm=https://www.netflix.com/title/' + id + '&source_type=4'}; }},
+    // Prime takes Amazon's title id (as LG's own voice search sends it); the service finds it by title.
+    amazon: {wait: 5000, lookup: function (it) { return svc('primeGti', {title: it.title}).then(function (r) { return r.gti || null; }); },
+      params: function (gti) { return {contentTarget: gti}; }}
   };
   function deepParams(it, app) {
     var d = DEEP[app];
@@ -150,13 +153,14 @@
     try { cache = JSON.parse(localStorage.deepIds || '{}'); } catch (e) { /* storage unavailable */ }
     if (key in cache) return Promise.resolve(cache[key] && d.params(cache[key]));
     var q = 'SELECT ?v WHERE { ?i wdt:' + (it.tmdb.type === 'movie' ? 'P4947' : 'P4983') + ' "' + it.tmdb.id + '" ; wdt:' + d.prop + ' ?v } LIMIT 1';
-    var lookup = get('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q)).then(function (r) {
-      var b = r.results.bindings[0], id = b ? b.v.value : null;
+    var find = d.lookup ? d.lookup(it) : get('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q))
+      .then(function (r) { var b = r.results.bindings[0]; return b ? b.v.value : null; });
+    var lookup = find.then(function (id) {
       cache[key] = id;
       try { localStorage.deepIds = JSON.stringify(cache); } catch (e) { /* storage unavailable */ }
       return id && d.params(id);
     });
-    var timeout = new Promise(function (ok) { setTimeout(function () { ok(null); }, 2500); });
+    var timeout = new Promise(function (ok) { setTimeout(function () { ok(null); }, d.wait || 2500); });
     return Promise.race([lookup, timeout]).catch(function () { return null; });
   }
   function launchTitle(it, svc) {

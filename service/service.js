@@ -71,6 +71,31 @@ var api = {
   },
   setSound: function (p) { return lunaRoot('luna://com.webos.settingsservice/setSystemSettings', {category: 'sound', settings: {soundMode: String(p.soundMode)}}); },
   screenOff: function () { return lunaRoot('luna://com.webos.service.tvpower/power/turnOffScreen', {}).then(function (r) { screenIsOff = r.returnValue !== false; return r; }); },
+  // Prime Video deep links need Amazon's title id ("GTI"). Look it up on Prime's search page by exact title:
+  // the first GTI near that title. The page can't fetch primevideo.com itself (CORS), so the service does.
+  primeGti: function (p) {
+    var title = String(p.title || '').trim();
+    if (!title) return Promise.resolve({returnValue: false});
+    return new Promise(function (ok) {
+      require('https').get('https://www.primevideo.com/search/?phrase=' + encodeURIComponent(title), {
+        headers: {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'Accept-Language': 'en-IN'}, timeout: 6000
+      }, function (res) {
+        var html = '';
+        res.setEncoding('utf8');
+        res.on('data', function (c) { html += c; });
+        res.on('end', function () {
+          var esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/"/g, '\\\\"');
+          var m = new RegExp('"title":"' + esc + '"', 'i').exec(html), gti = null;
+          if (m) {
+            var near = html.slice(Math.max(0, m.index - 1500), m.index + 1500).match(/amzn1\.dv\.gti\.[0-9a-f-]{36}/);
+            gti = near && near[0];
+          }
+          log('primeGti ' + title + ' -> ' + gti);
+          ok({returnValue: !!gti, gti: gti});
+        });
+      }).on('error', function () { ok({returnValue: false}); }).on('timeout', function () { this.destroy(); });
+    });
+  },
   screenOn: function () { return lunaRoot('luna://com.webos.service.tvpower/power/turnOnScreen', {}); }
 };
 Object.keys(api).forEach(function (name) {
