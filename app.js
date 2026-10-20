@@ -334,6 +334,7 @@
     if (e.dataset.act === 'live') return launch('com.webos.app.livetv');
     if (e.id === 'avatar') return TV.onAvatar();
     if (e.dataset.act === 'settings') return openQuick();
+    if (e.dataset.act === 'weather') return openView('weather');
     if (e.dataset.q) return quickAct(e.dataset.q);
     if (e.dataset.r) return choose(e);
     if (e.id === 'sclose') return closeSettings();
@@ -403,6 +404,9 @@
     return code <= 1 ? (day ? 'sun' : 'moon') : code <= 3 ? 'cloud' : code <= 48 ? 'fog' :
       (code >= 71 && code <= 77) || code === 85 || code === 86 ? 'snow' : code >= 95 ? 'storm' : 'rain';
   }
+  function wxSvg(code, day) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + WX[wxIcon(code, day)] + '</svg>';
+  }
   function weatherLoc() {
     var city = S.weatherCity || 'auto', saved = store('weatherLoc');
     if (saved && saved.city === city) return Promise.resolve(saved);
@@ -418,8 +422,7 @@
       return get('https://api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code,is_day&latitude=' + l.lat + '&longitude=' + l.lon)
         .then(function (r) {
           var c = r.current, w = $('weather');
-          w.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-            WX[wxIcon(c.weather_code, c.is_day)] + '</svg>' + Math.round(c.temperature_2m) + '°';
+          w.innerHTML = wxSvg(c.weather_code, c.is_day) + Math.round(c.temperature_2m) + '°';
           w.title = l.name; w.hidden = false;
         });
     }).catch(function (e) { console.warn('weather', e); });
@@ -468,6 +471,55 @@
   };
   if (P.name) { $('avatar').textContent = document.querySelector('.qav').textContent = P.name.charAt(0).toUpperCase(); }
   if (P.color) $('avatar').style.background = P.color;
+  // ---------- weather side panel ----------
+  var WXTEXT = {0: 'Clear', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Cloudy', 45: 'Fog', 48: 'Fog', 51: 'Light drizzle', 53: 'Drizzle',
+    55: 'Heavy drizzle', 61: 'Light rain', 63: 'Rain', 65: 'Heavy rain', 66: 'Freezing rain', 67: 'Freezing rain', 71: 'Light snow',
+    73: 'Snow', 75: 'Heavy snow', 77: 'Snow grains', 80: 'Rain showers', 81: 'Rain showers', 82: 'Heavy showers', 85: 'Snow showers',
+    86: 'Snow showers', 95: 'Thunderstorm', 96: 'Thunderstorm, hail', 99: 'Thunderstorm, hail'};
+  var wxPanel = el('div', '', ''), wxDim = el('div', '', '');
+  wxPanel.id = 'wxpanel'; wxDim.id = 'wxdim'; wxPanel.hidden = wxDim.hidden = true;
+  document.body.appendChild(wxDim); document.body.appendChild(wxPanel);
+  wxDim.onclick = function () { closeView(); };
+  function hhmm(iso) { var h = +iso.slice(11, 13), m = iso.slice(14, 16); return S.clock24 ? iso.slice(11, 16) : (h % 12 || 12) + ':' + m + (h < 12 ? ' AM' : ' PM'); }
+  function renderWx(l, r) {
+    var c = r.current, d = r.daily, h = r.hourly, now = c.time.slice(0, 13), start = 0;
+    while (start < h.time.length - 1 && h.time[start].slice(0, 13) < now) start++;
+    var hours = '', days = '';
+    for (var i = start; i < start + 12 && i < h.time.length; i++) {
+      hours += '<div class="wxh"><span>' + (i === start ? 'Now' : hhmm(h.time[i]).replace(':00', '')) + '</span>' + wxSvg(h.weather_code[i], h.is_day[i]) + '<b>' + Math.round(h.temperature_2m[i]) + '°</b></div>';
+    }
+    for (var j = 0; j < d.time.length; j++) {
+      var name = j === 0 ? 'Today' : new Date(d.time[j] + 'T12:00').toLocaleDateString('en-US', {weekday: 'short'});
+      days += '<div class="wxd"><span>' + name + '</span>' + wxSvg(d.weather_code[j], 1) + '<i>' + (d.precipitation_probability_max[j] ? d.precipitation_probability_max[j] + '%' : '') +
+        '</i><b>' + Math.round(d.temperature_2m_max[j]) + '°</b><em>' + Math.round(d.temperature_2m_min[j]) + '°</em></div>';
+    }
+    wxPanel.innerHTML = '<div class="wxtop"><div><div class="wxcity">' + esc(l.name) + '</div><div class="wxnow">' + wxSvg(c.weather_code, c.is_day) +
+      '<span>' + Math.round(c.temperature_2m) + '°</span></div><div class="wxcond">' + (WXTEXT[c.weather_code] || '') + '  ·  H ' + Math.round(d.temperature_2m_max[0]) +
+      '°  L ' + Math.round(d.temperature_2m_min[0]) + '°</div></div><span class="wxbtn f" data-wx="close">&#10005;</span></div>' +
+      '<div class="wxstats"><div><small>Feels like</small>' + Math.round(c.apparent_temperature) + '°</div><div><small>Humidity</small>' + c.relative_humidity_2m +
+      '%</div><div><small>Wind</small>' + Math.round(c.wind_speed_10m) + ' km/h</div><div><small>Sunrise</small>' + hhmm(d.sunrise[0]) + '</div><div><small>Sunset</small>' + hhmm(d.sunset[0]) + '</div></div>' +
+      '<h4>Next 12 hours</h4><div class="wxhours">' + hours + '</div><h4>Next ' + d.time.length + ' days</h4><div class="wxdays">' + days + '</div>' +
+      '<div class="wxfoot"><span class="wxbtn wide f" data-wx="city">Change city</span><small>Open-Meteo</small></div>';
+    wxPanel.querySelector('[data-wx=close]').onok = closeView;
+    wxPanel.querySelector('[data-wx=city]').onok = function () { closeView(); openSettings(); };
+    buildNav();
+  }
+  views.weather = {
+    nav: function () { return [].slice.call(wxPanel.querySelectorAll('.f')).map(function (e) { return [e]; }); },
+    show: function () {
+      wxPanel.hidden = wxDim.hidden = false;
+      wxPanel.innerHTML = '<div class="wxtop"><div class="wxload">Loading weather…</div><span class="wxbtn f" data-wx="close">&#10005;</span></div>';
+      wxPanel.querySelector('[data-wx=close]').onok = closeView;
+      weatherLoc().then(function (l) {
+        return get('https://api.open-meteo.com/v1/forecast?timezone=auto&forecast_days=6&latitude=' + l.lat + '&longitude=' + l.lon +
+          '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day' +
+          '&hourly=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max')
+          .then(function (r) { if (TV.view() === 'weather') renderWx(l, r); });
+      }).catch(function () { wxPanel.querySelector('.wxload').textContent = 'Couldn’t load the weather. Check the connection.'; });
+    },
+    hide: function () { wxPanel.hidden = wxDim.hidden = true; }
+  };
+
   window.dispatchEvent(new Event('tvready'));
 
   // Relaunch (Home button, or opening TV Home again): appinfo's handlesRelaunch keeps the page alive
