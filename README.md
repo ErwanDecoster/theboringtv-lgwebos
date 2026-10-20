@@ -69,7 +69,7 @@ ares-install --device tvroot /tmp/com.boring.tvhome_*.ipk
 ssh root@<tv-ip> 'D=/media/developer/apps/usr/palm/services/com.boring.tvhome.service; ln -sf $D/autostart.sh /var/lib/webosbrew/init.d/50-tvhome && sh $D/autostart.sh'
 ```
 Undo with `rm /var/lib/webosbrew/init.d/50-tvhome`, or uninstall TV Home. If Home does nothing, your remote may
-send a different key code: press Home, then read `/tmp/tvhome-svc.log` on the TV and set `HOME_CODE` in `service/service.js`.
+send a different key code; set `HOME_CODE` in `service/service.js` (773 on LG Magic Remotes). If LG's home still covers TV Home, raise the delays in `HOME_DELAYS`.
 
 ## Limits
 - Without root it's an app, not the system launcher: the Home button opens LG's home.

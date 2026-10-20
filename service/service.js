@@ -7,7 +7,7 @@ var Service = require('webos-service');
 var fs = require('fs');
 
 var APP_ID = 'com.boring.tvhome';
-var HOME_CODE = 773; // HOME on LG Magic Remotes. Other key codes are logged, so check /tmp/tvhome-svc.log if Home does nothing.
+var HOME_CODE = 773; // HOME on LG Magic Remotes (confirmed on the 55UR8040)
 var EV_KEY = 1, EVENT_SIZE = 16; // 32-bit struct input_event
 var LOG = '/tmp/tvhome-svc.log';
 var ARGS = process.argv.slice(2);
@@ -26,8 +26,15 @@ function launch(reason, cb) {
     if (cb) cb(m && m.payload && m.payload.returnValue === true);
   });
 }
+// LG's own home still opens on HOME (we only read the key) and finishes animating in after our
+// first launch, covering TV Home. So launch again once it has appeared. Tune the delays if needed.
+var HOME_DELAYS = [400, 1300];
 var busy = false;
-function onHome() { if (busy) return; busy = true; setTimeout(function () { busy = false; }, 800); launch('home-key'); }
+function onHome() {
+  if (busy) return;
+  busy = true; setTimeout(function () { busy = false; }, 1600);
+  HOME_DELAYS.forEach(function (ms, i) { setTimeout(function () { launch('home-key #' + (i + 1)); }, ms); });
+}
 
 // Boot: the app manager isn't ready straight away, so retry for up to ~60s.
 function bootLaunch(n) { launch('boot #' + n, function (ok) { if (!ok && n < 30) setTimeout(function () { bootLaunch(n + 1); }, 2000); }); }
@@ -49,7 +56,7 @@ function watchAll() {
       for (var off = 0; off + EVENT_SIZE <= n; off += EVENT_SIZE) {
         if (buf.readUInt16LE(off + 8) !== EV_KEY || buf.readInt32LE(off + 12) !== 1) continue;
         var code = buf.readUInt16LE(off + 10);
-        if (code === HOME_CODE) { log('HOME key'); onHome(); } else log('key ' + code);
+        if (code === HOME_CODE) { log('HOME key'); onHome(); }
       }
     }
   }, 16);
