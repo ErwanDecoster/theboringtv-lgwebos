@@ -108,11 +108,23 @@ tools/tv picture cinema   # backlight 0-100, sound movie, screen-off, home, off,
 For Home Assistant, its built-in **LG webOS Smart TV** integration already controls power, volume, inputs and apps
 over the TV's own network API, with no root needed. Use `tools/tv` (from a shell command) for the extras.
 
+## Deep links
+"Watch on …" opens the exact title, using the link format each app accepts (Prime's and JioHotstar's were captured
+from LG's own voice search):
+
+| Service | Id source | Link sent as `contentTarget` |
+|---|---|---|
+| Netflix | Wikidata (P1874) | `m=https://www.netflix.com/title/<id>&source_type=4` |
+| Prime Video | Prime's search page, via the service (rooted TV) | the Amazon title id, `amzn1.dv.gti.…` |
+| JioHotstar | JustWatch, matched by TMDB id, then Wikidata (P11049) | `https://livingroom.hotstar.com/<id>` |
+| YouTube | the video id | `https://www.youtube.com/tv?v=<id>` |
+
+Ids are cached on the TV. If a lookup finds nothing or takes too long, the app just opens normally.
+
 ## Limits
 - Without root it's an app, not the system launcher: the Home button opens LG's home.
 - webOS still shows a short splash (TV Home's own dark one) when it has to start TV Home from scratch.
-- Netflix and Hotstar titles open the app, not the exact show, because their deep links need internal IDs that
-  TMDB doesn't have. YouTube videos do open directly.
+- Deep links need each service's own title id, so a title opens the app's home when no id is found.
 - The app can't read LG Channels' channel list or Netflix/Hotstar watch history.
 
 ## Credits
