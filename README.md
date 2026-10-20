@@ -5,6 +5,18 @@ A Google TV-style home screen for LG webOS TVs. It's a plain HTML/CSS/JS web app
 Built and tested on an LG 55UR8040 (webOS 25, SDK 10.3, Chromium 120) at 1920x1080. Works with the arrow keys,
 OK and Back, the Magic Remote pointer, and the scroll wheel.
 
+![Home screen with the featured title and Top picks](docs/screenshots/01-home.jpg)
+
+| Rows with a blurred background | Details page with where to watch |
+|:---:|:---:|
+| ![Popular on Netflix, JioHotstar and Prime Video rows](docs/screenshots/02-rows.jpg) | ![Details page with Watch, Trailer and Watchlist buttons](docs/screenshots/03-details.jpg) |
+| **Search across services** | **Quick settings** |
+| ![Search with on-screen keyboard and where-to-watch labels](docs/screenshots/04-search.jpg) | ![Quick settings side panel](docs/screenshots/05-quick-settings.jpg) |
+| **Settings** | **Profiles** |
+| ![Settings panel with country, languages and services](docs/screenshots/06-settings.jpg) | ![Who's watching profile picker](docs/screenshots/07-profiles.jpg) |
+| **Ambient mode** | |
+| ![Ambient mode slideshow with clock](docs/screenshots/08-ambient.jpg) | |
+
 ## Features
 - **Hero and rows:** full-screen featured titles, "Top picks", "Popular on Netflix / JioHotstar / Prime Video" and
   "Trending on YouTube", using [TMDB](https://www.themoviedb.org/) and the YouTube Data API.

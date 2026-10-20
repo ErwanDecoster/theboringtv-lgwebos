@@ -7,10 +7,10 @@
 #ambient img.kb1 { animation: amb-kb1 16s linear both; }
 #ambient img.kb2 { animation: amb-kb2 16s linear both; }
 #ambient img.kb3 { animation: amb-kb3 16s linear both; }
-@keyframes amb-kb0 { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.14) translate(-2%, -1%); } }
-@keyframes amb-kb1 { from { transform: scale(1.14) translate(-2%, 1%); } to { transform: scale(1.04) translate(1%, 0); } }
-@keyframes amb-kb2 { from { transform: scale(1.06) translate(2%, 0); } to { transform: scale(1.15) translate(-1%, 1%); } }
-@keyframes amb-kb3 { from { transform: scale(1.15) translate(1%, -1%); } to { transform: scale(1.05) translate(-1%, 1%); } }
+@keyframes amb-kb0 { from { transform: scale(1.08) translate(0, 0); } to { transform: scale(1.14) translate(-2%, -1%); } }
+@keyframes amb-kb1 { from { transform: scale(1.14) translate(-2%, 1%); } to { transform: scale(1.08) translate(1%, 0); } }
+@keyframes amb-kb2 { from { transform: scale(1.08) translate(2%, 0); } to { transform: scale(1.15) translate(-1%, 1%); } }
+@keyframes amb-kb3 { from { transform: scale(1.15) translate(1%, -1%); } to { transform: scale(1.08) translate(-1%, 1%); } }
 /* bottom scrim: one cheap gradient instead of text shadows */
 #ambient::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 360px; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
 #ambient .amb-clock, #ambient .amb-title { position: absolute; bottom: 64px; z-index: 1; color: #e8eaed; }
