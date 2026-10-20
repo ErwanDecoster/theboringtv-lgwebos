@@ -55,15 +55,30 @@ ares-launch --device tv com.boring.tvhome
 ```
 Developer Mode installs expire after 50 hours unless you extend them in the Developer Mode app.
 
+## Make it the real home screen (rooted TVs)
+On a TV rooted with the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel), `service/` opens
+TV Home when you press **Home**, at startup, and after standby. It reads the remote without grabbing it, and changes
+no system files. Package it with the app and turn on the startup hook:
+```bash
+ares-package . service -e service -e docs -e .git -o /tmp --no-minify
+```
+```bash
+ares-install --device tvroot /tmp/com.boring.tvhome_*.ipk
+```
+```bash
+ssh root@<tv-ip> 'D=/media/developer/apps/usr/palm/services/com.boring.tvhome.service; ln -sf $D/autostart.sh /var/lib/webosbrew/init.d/50-tvhome && sh $D/autostart.sh'
+```
+Undo with `rm /var/lib/webosbrew/init.d/50-tvhome`, or uninstall TV Home. If Home does nothing, your remote may
+send a different key code: press Home, then read `/tmp/tvhome-svc.log` on the TV and set `HOME_CODE` in `service/service.js`.
+
 ## Limits
-- It's an app, not the system launcher. The Home button still opens LG's home unless the TV is rooted and runs a
-  Home-button service; this repo doesn't include one yet.
+- Without root it's an app, not the system launcher: the Home button opens LG's home.
 - Netflix and Hotstar titles open the app, not the exact show, because their deep links need internal IDs that
   TMDB doesn't have. YouTube videos do open directly.
 - The app can't read LG Channels' channel list or Netflix/Hotstar watch history.
 
 ## Credits
-App icons in `icons/` and the webOS launch approach come from
+App icons in `icons/`, the webOS launch approach and the Home-button service in `service/` come from
 [zzeppieri/webos-custom-home](https://github.com/zzeppieri/webos-custom-home) (MIT licence). Title data and images
 come from TMDB; this product uses the TMDB API but is not endorsed or certified by TMDB.
 
