@@ -4,13 +4,13 @@ window.CONFIG = {
   REGION: 'IN',
   LANG: 'en-IN',
   NAME: 'N',
-  // Services the app knows. `on` = shown as a "Popular on …" row by default (changeable in Settings). `match` = TMDB provider name; `app` = webOS app id.
+  // Services the app knows. `on` = shown as a "Popular on …" row by default (changeable in Settings). `match` = TMDB provider name; `app` = webOS app id; `jw` = JustWatch package code.
   SERVICES: [
-    {name: 'Netflix', match: 'netflix', app: 'netflix', on: true},
-    {name: 'JioHotstar', match: 'hotstar', app: 'hotstar', on: true},
-    {name: 'Prime Video', match: 'amazon prime video', app: 'amazon', on: true},
-    {name: 'ZEE5', match: 'zee5', app: 'com.zee5.app'},
-    {name: 'Apple TV+', match: 'apple tv', app: 'com.apple.appletv'}
+    {name: 'Netflix', match: 'netflix', app: 'netflix', jw: 'nfx', on: true},
+    {name: 'JioHotstar', match: 'hotstar', app: 'hotstar', jw: 'jhs', on: true},
+    {name: 'Prime Video', match: 'amazon prime video', app: 'amazon', jw: 'prv', on: true},
+    {name: 'ZEE5', match: 'zee5', app: 'com.zee5.app', jw: 'zee'},
+    {name: 'Apple TV+', match: 'apple tv', app: 'com.apple.appletv', jw: 'atp'}
   ],
   // App row. The TV won't list installed apps for non-system apps, so each of these
   // is checked with getAppLoadStatus and only the ones that exist are shown.

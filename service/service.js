@@ -129,6 +129,38 @@ var api = {
       req.end(body);
     });
   },
+  // JustWatch "popular now" on the given packages (e.g. nfx, prv, jhs) in India, for Top picks.
+  // JustWatch sends no CORS header, so the page asks the service. {packages, first} -> {items}
+  jwPopular: function (p) {
+    var q = 'query($c:Country!,$l:Language!,$p:[String!],$n:Int!){popularTitles(country:$c,first:$n,sortBy:POPULAR,filter:{packages:$p}){edges{node{objectType ... on MovieOrShow{' +
+      'content(country:$c,language:$l){title shortDescription originalReleaseYear externalIds{tmdbId} backdrops{backdropUrl} scoring{imdbScore}} offers(country:$c,platform:WEB){package{shortName}}}}}}}';
+    var body = JSON.stringify({query: q, variables: {c: 'IN', l: 'en', p: p.packages || [], n: Math.min(+p.first || 30, 60)}});
+    return new Promise(function (ok) {
+      var req = require('https').request('https://apis.justwatch.com/graphql', {method: 'POST', timeout: 8000,
+        headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}}, function (res) {
+        var out = '';
+        res.setEncoding('utf8');
+        res.on('data', function (c) { out += c; });
+        res.on('end', function () {
+          var items = [];
+          try {
+            JSON.parse(out).data.popularTitles.edges.forEach(function (e) {
+              var n = e.node, c = n.content, b = c.backdrops && c.backdrops[0] && c.backdrops[0].backdropUrl;
+              if (!b) return; // no art, no card
+              var img = function (size) { return 'https://images.justwatch.com' + b.replace('{profile}', size).replace('{format}', 'webp'); };
+              items.push({type: n.objectType === 'MOVIE' ? 'movie' : 'tv', tmdbId: c.externalIds && c.externalIds.tmdbId, title: c.title,
+                sub: c.shortDescription, year: c.originalReleaseYear, score: c.scoring && c.scoring.imdbScore,
+                img: img('s592'), bg: img('s1440'), packages: (n.offers || []).map(function (o) { return o.package.shortName; })});
+            });
+          } catch (e) { /* unexpected reply: no items */ }
+          log('jwPopular ' + items.length);
+          ok({returnValue: items.length > 0, items: items});
+        });
+      });
+      req.on('error', function () { ok({returnValue: false, items: []}); }).on('timeout', function () { req.destroy(); });
+      req.end(body);
+    });
+  },
   screenOn: function () { return lunaRoot('luna://com.webos.service.tvpower/power/turnOnScreen', {}); }
 };
 Object.keys(api).forEach(function (name) {

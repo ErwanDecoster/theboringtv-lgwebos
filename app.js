@@ -110,6 +110,30 @@
       return {title: 'Popular on ' + svc.name, items: mix(rs[0].results, rs[1].results).map(function (m) { return fromTmdb(m, svc); })};
     });
   }
+  // JustWatch "popular now" on your services (rooted TV: fetched by the service). Each title already says
+  // which of your services has it, so its card opens the right app straight away.
+  function jwPicks() {
+    var codes = SERVICES.map(function (s) { return s.jw; }).filter(Boolean);
+    if (!codes.length) return Promise.resolve([]);
+    return svc('jwPopular', {packages: codes, first: 40}).then(function (r) {
+      return (r.items || []).map(function (m) {
+        var svc = SERVICES.filter(function (s) { return m.packages.indexOf(s.jw) >= 0; })[0];
+        return {title: m.title, sub: m.sub, img: m.img, bg: m.bg, blur: m.img,
+          meta: [m.year, m.type === 'movie' ? 'Movie' : 'Series', m.score ? 'IMDb ' + m.score.toFixed(1) : ''].filter(Boolean).join('  ·  '),
+          src: svc ? 'Popular on ' + svc.name : 'Popular now', svc: svc, tmdb: m.tmdbId ? {type: m.type, id: +m.tmdbId} : null};
+      });
+    });
+  }
+  // Alternate the two feeds, dropping repeats (same TMDB title, or same name when JustWatch has no TMDB id).
+  function mergePicks(a, b) {
+    var seen = {}, out = [];
+    for (var i = 0; i < Math.max(a.length, b.length); i++) [a[i], b[i]].forEach(function (it) {
+      if (!it) return;
+      var k = it.tmdb ? it.tmdb.type + ':' + it.tmdb.id : it.title.toLowerCase();
+      if (!seen[k] && !seen[it.title.toLowerCase()]) { seen[k] = seen[it.title.toLowerCase()] = 1; out.push(it); }
+    });
+    return out;
+  }
   function youtube() {
     return get('https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&maxResults=20&regionCode=' + C.REGION + '&key=' + C.YT_KEY)
       .then(function (r) {
@@ -627,12 +651,14 @@
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
     return Promise.all([
       safe(trending()),
+      safe(jwPicks()),
       safe(tmdb('watch/providers/tv', '&watch_region=' + C.REGION).then(function (r) {
         return Promise.all(SERVICES.map(function (s) { return safe(serviceRow(s, r.results)); }));
       })),
       S.youtube ? safe(youtube()) : null
     ]).then(function (r) {
-      var picks = r[0] || [];
+      var picks = mergePicks(r[1] || [], r[0] || []); // JustWatch first, then TMDB
+      r.splice(1, 1); // keep the indexes below as they were
       heroItems = picks.slice(0, 6);
       base = [{title: 'Top picks for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
         .concat((r[1] || []).filter(Boolean), r[2] ? [r[2]] : []);
