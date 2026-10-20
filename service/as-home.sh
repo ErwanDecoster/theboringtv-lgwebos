@@ -12,9 +12,15 @@ LOG=/tmp/tvhome-as-home.log
 grep -q " $DST " /proc/mounts && { echo "already mounted" >"$LOG"; exit 0; }
 
 rm -rf "$TMP" && mkdir -p "$TMP" && cp -a "$SRC/." "$TMP/" || exit 0
+HIDE='s/"main": *"index.html",/&\n  "visible": false,/' # keep it out of the app list, like LG's home
 sed -i 's/"id": *"com.boring.tvhome"/"id": "com.webos.app.home"/; s/"title": *"TV Home"/"title": "Home"/' "$TMP/appinfo.json"
+sed -i "$HIDE" "$TMP/appinfo.json"
 grep -q '"com.webos.app.home"' "$TMP/appinfo.json" || { echo "appinfo rewrite failed" >"$LOG"; exit 0; }
 mount --bind "$TMP" "$DST" && echo "mounted TV Home over $DST" >"$LOG" || exit 0
+
+# Hide the regular TV Home app too, so the app list doesn't show a second TV Home (RAM-only, like the above).
+sed "$HIDE" "$SRC/appinfo.json" >/tmp/tvhome-regular-appinfo.json &&
+  mount --bind /tmp/tvhome-regular-appinfo.json "$SRC/appinfo.json" && echo "hid regular TV Home" >>"$LOG"
 
 # The app manager (sam) read the app list before this ran and still thinks home is LG's Flutter app.
 # Restart it so it re-reads com.webos.app.home from the mount (systemd brings it straight back).
