@@ -39,9 +39,8 @@ if [ ! -f "$ORIG" ]; then
   luna-send -n 1 -w 5000 luna://com.webos.settingsservice/getSystemSettings \
     '{"category":"general","keys":["lastInputApp","physicalLastInputApp","homeAutoLaunch"]}' >"$ORIG" 2>/dev/null
 fi
-# homeAutoLaunch off too: when power returns at the plug, webOS otherwise opens the home app directly,
-# before this script has swapped it, so LG's own home would show first.
+# (Home Auto Launch is left on: it's what shows LG's logo and the webOS boot animation.)
 luna-send -n 1 -w 5000 luna://com.webos.settingsservice/setSystemSettings \
-  '{"category":"general","settings":{"lastInputApp":"com.boring.tvhome","physicalLastInputApp":"com.boring.tvhome","homeAutoLaunch":"off"}}' >/dev/null 2>&1 &&
+  '{"category":"general","settings":{"lastInputApp":"com.boring.tvhome","physicalLastInputApp":"com.boring.tvhome"}}' >/dev/null 2>&1 &&
   echo "boot input set to TV Home" >>"$LOG"
 exit 0
