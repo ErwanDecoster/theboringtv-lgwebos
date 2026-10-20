@@ -193,3 +193,9 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
 .wxfoot small { font-size: 15px; color: #80868b; }
 .qinputs { flex-wrap: wrap; margin-top: 4px; }
 .qinputs .chip { margin: 0 10px 10px 0; }
+
+/* app tile menu + move mode */
+#appmenu { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 9; background: #202124; border-radius: 28px;
+  padding: 26px 30px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.6); text-align: center; white-space: nowrap; }
+#appmenu h4 { font-size: 24px; font-weight: 500; margin-bottom: 18px; }
+.app.moving .disc { box-shadow: 0 0 0 5px #8ab4f8, 0 0 0 10px rgba(138,180,248,.35); }

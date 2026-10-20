@@ -147,10 +147,11 @@ var api = {
             JSON.parse(out).data.popularTitles.edges.forEach(function (e) {
               var n = e.node, c = n.content, b = c.backdrops && c.backdrops[0] && c.backdrops[0].backdropUrl;
               if (!b) return; // no art, no card
+              // JustWatch backdrop sizes that exist: s480, s640, s1440, s1920 (others return 400)
               var img = function (size) { return 'https://images.justwatch.com' + b.replace('{profile}', size).replace('{format}', 'webp'); };
               items.push({type: n.objectType === 'MOVIE' ? 'movie' : 'tv', tmdbId: c.externalIds && c.externalIds.tmdbId, title: c.title,
                 sub: c.shortDescription, year: c.originalReleaseYear, score: c.scoring && c.scoring.imdbScore,
-                img: img('s592'), bg: img('s1440'), packages: (n.offers || []).map(function (o) { return o.package.shortName; })});
+                img: img('s640'), blur: img('s480'), bg: img('s1440'), packages: (n.offers || []).map(function (o) { return o.package.shortName; })});
             });
           } catch (e) { /* unexpected reply: no items */ }
           log('jwPopular ' + items.length);

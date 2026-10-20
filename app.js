@@ -71,7 +71,12 @@
         .then(function (r) { return r.exist ? a : null; }, function () { return a; });
     })).then(function (list) { apps = list.filter(Boolean); });
   }
-  function visibleApps() { return apps.filter(function (a) { return (P.hideApps || []).indexOf(a.id) < 0; }); }
+  // Apps row order and removed apps are per profile (store); profile.js's hideApps also applies.
+  function visibleApps() {
+    var hidden = (P.hideApps || []).concat(store('appHidden') || []), order = store('appOrder') || [];
+    var rank = function (a) { var i = order.indexOf(a.id); return i < 0 ? 1e4 + apps.indexOf(a) : i; };
+    return apps.filter(function (a) { return hidden.indexOf(a.id) < 0; }).sort(function (a, b) { return rank(a) - rank(b); });
+  }
   function svcFor(name) {
     name = name.toLowerCase();
     return C.SERVICES.filter(function (s) { return name.indexOf(s.match) >= 0; })[0];
@@ -118,7 +123,7 @@
     return svc('jwPopular', {packages: codes, first: 40}).then(function (r) {
       return (r.items || []).map(function (m) {
         var svc = SERVICES.filter(function (s) { return m.packages.indexOf(s.jw) >= 0; })[0];
-        return {title: m.title, sub: m.sub, img: m.img, bg: m.bg, blur: m.img,
+        return {title: m.title, sub: m.sub, img: m.img, bg: m.bg, blur: m.blur || m.img,
           meta: [m.year, m.type === 'movie' ? 'Movie' : 'Series', m.score ? 'IMDb ' + m.score.toFixed(1) : ''].filter(Boolean).join('  ·  '),
           src: svc ? 'Popular on ' + svc.name : 'Popular now', svc: svc, tmdb: m.tmdbId ? {type: m.type, id: +m.tmdbId} : null};
       });
@@ -226,6 +231,7 @@
     t.innerHTML = '<div class="disc" style="background:' + a.color + '">' +
       (a.img || a.icon ? '<img src="' + (a.img || 'icons/' + a.icon) + '" alt="" decoding="async">' : '<span class="txt">' + esc(a.title) + '</span>') + '</div><div class="cap">' + esc(a.title) + '</div>';
     t.onok = function () { launch(a.id); };
+    t.app = a;
     return t;
   }
   function card(it) {
@@ -259,6 +265,7 @@
       ['Mumbai', 'Mumbai'], ['Delhi', 'Delhi'], ['Bengaluru', 'Bengaluru'], ['Hyderabad', 'Hyderabad'], ['Chennai', 'Chennai'],
       ['Kolkata', 'Kolkata'], ['Pune', 'Pune'], ['Ahmedabad', 'Ahmedabad'], ['Jaipur', 'Jaipur'], ['Lucknow', 'Lucknow'],
       ['Chandigarh', 'Chandigarh'], ['Kochi', 'Kochi'], ['off', 'Off']]},
+    {key: 'unhide', title: 'Your apps', hint: 'Hold OK on an app to move or remove it', opts: [['unhide', 'Show hidden apps']]},
     {key: 'clear', title: 'Continue watching', opts: [['clear', 'Clear history']]}
   ];
   var draft, dirty;
@@ -281,6 +288,7 @@
   }
   function choose(e) {
     var row = SROWS[+e.dataset.r], o = row.opts[+e.dataset.i], v = draft[row.key];
+    if (row.key === 'unhide') { store('appHidden', []); refreshApps(); return toast('Hidden apps are back'); }
     if (row.key === 'clear') { recent = []; store('recent', []); buildRows(); return toast('Continue watching cleared'); }
     if (row.many) { var i = v.indexOf(o[0]); i >= 0 ? v.splice(i, 1) : v.push(o[0]); } else draft[row.key] = o[0];
     dirty = true;
@@ -447,7 +455,15 @@
     if (e.id === 'heroBtn') return TV.itemOk(heroItems[heroIdx]);
     if (e.onok) e.onok();
   }
+  var holdTimer = 0, holdFired = false, moving = null;
+  document.addEventListener('keyup', function (ev) {
+    if (ev.keyCode !== 13) return;
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; var cur = nav[pos.r] && nav[pos.r][pos.c]; if (cur && cur.onok) cur.onok(); }
+    holdFired = false;
+  });
   document.addEventListener('keydown', function (ev) {
+    if (moving && (ev.keyCode === 37 || ev.keyCode === 39)) { ev.preventDefault(); return moveApp(ev.keyCode === 39 ? 1 : -1); }
+    if (moving && (ev.keyCode === 461 || ev.keyCode === 27 || ev.keyCode === 8)) { ev.preventDefault(); return endMove(); }
     var k = ev.keyCode, onHero = view === 'home' && pos.r === 1;
     idleSince = Date.now();
     if (views[view] && views[view].keydown && views[view].keydown(ev)) { ev.preventDefault(); return; } // view handled it
@@ -455,7 +471,16 @@
     else if (k === 39) { if (onHero) stepHero(1); else pos.c++; }
     else if (k === 38) { if (pos.r > 0) { pos.r--; pos.c = mem[pos.r] || 0; } }
     else if (k === 40) { if (pos.r < nav.length - 1) { pos.r++; pos.c = mem[pos.r] || 0; } }
-    else if (k === 13) { ev.preventDefault(); return activate(nav[pos.r][pos.c]); }
+    else if (k === 13) {
+      ev.preventDefault();
+      var cur = nav[pos.r][pos.c];
+      if (moving) return endMove();
+      if (cur && cur.app && view !== 'appmenu') { // app tile: launch on release, menu if held
+        if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; openAppMenu(cur.app); }, 550);
+        return;
+      }
+      return activate(cur);
+    }
     else if (k === 461 || k === 27 || k === 8) { if (views[view]) return views[view].back ? views[view].back() : closeView(); if (view === 'settings') return closeSettings(); if (view === 'quick') return closeQuick(); if (view !== 'home') setView('home'); else { pos.r = 1; pos.c = 0; } }
     else return;
     ev.preventDefault();
@@ -538,6 +563,38 @@
   document.querySelector('.qav').textContent = C.NAME;
   $('qdim').onclick = function () { closeQuick(); };
   $('sdim').onclick = function () { closeSettings(); };
+
+  // ---------- move / remove apps ----------
+  function refreshApps() {
+    base.forEach(function (row) { if (row.apps) row.apps = visibleApps(); });
+    buildRows();
+  }
+  function focusApp(id) { // put focus back on an app tile after re-rendering
+    for (var r = 0; r < nav.length; r++) for (var c = 0; c < nav[r].length; c++) if (nav[r][c].app && nav[r][c].app.id === id) { pos.r = r; pos.c = c; focus(); return; }
+  }
+  var menu = el('div', '', ''); menu.id = 'appmenu'; menu.hidden = true; document.body.appendChild(menu);
+  function openAppMenu(a) {
+    menu.innerHTML = '<h4>' + esc(a.title) + '</h4><span class="chip f" data-m="move">Move</span><span class="chip f" data-m="remove">Remove from home</span><span class="chip f" data-m="cancel">Cancel</span>';
+    [].forEach.call(menu.querySelectorAll('.chip'), function (c) {
+      c.onok = function () {
+        closeView();
+        if (c.dataset.m === 'move') { moving = a.id; focusApp(a.id); var t = document.querySelector('.focus'); if (t) t.classList.add('moving'); toast('Left / right to move, OK when done'); }
+        if (c.dataset.m === 'remove') {
+          store('appHidden', (store('appHidden') || []).concat(a.id)); refreshApps();
+          toast(a.title + ' removed. Settings → Show hidden apps brings it back');
+        }
+      };
+    });
+    openView('appmenu');
+  }
+  function moveApp(d) {
+    var list = visibleApps().map(function (a) { return a.id; }), i = list.indexOf(moving), j = i + d;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    list[i] = list[j]; list[j] = moving;
+    store('appOrder', list); refreshApps(); focusApp(moving);
+    var t = document.querySelector('.focus'); if (t) t.classList.add('moving');
+  }
+  function endMove() { moving = null; var t = document.querySelector('.moving'); if (t) t.classList.remove('moving'); toast('Saved'); }
 
   // ---------- plugin API (details.js, search.js, ambient.js, profiles.js) ----------
   // A view = {nav() -> rows of focusable elements, show(arg), hide(), onFocus(el, pos)?, back()?, keydown(ev)?}.
@@ -626,6 +683,10 @@
     hide: function () { wxPanel.hidden = wxDim.hidden = true; }
   };
 
+  views.appmenu = {
+    nav: function () { return [[].slice.call(menu.querySelectorAll('.chip'))]; },
+    show: function () { menu.hidden = false; }, hide: function () { menu.hidden = true; }
+  };
   window.dispatchEvent(new Event('tvready'));
 
   // Relaunch (Home button, or opening TV Home again): appinfo's handlesRelaunch keeps the page alive
