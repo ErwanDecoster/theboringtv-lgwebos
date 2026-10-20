@@ -57,6 +57,7 @@ Developer Mode installs expire after 50 hours unless you extend them in the Deve
 
 ## Make it the real home screen (rooted TVs)
 On a TV rooted with the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel), there are two options.
+To root a TV, see [e.nya.je/getroot](https://e.nya.je/getroot/) (at your own risk: it may void your warranty, and a firmware update can remove root).
 Both live in `service/`, are packaged with the app, and change no files on disk.
 
 **Replace LG's home (recommended).** `service/as-home.sh` runs early at every boot. It copies TV Home into RAM, gives
