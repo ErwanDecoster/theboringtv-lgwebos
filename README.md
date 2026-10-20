@@ -56,9 +56,13 @@ ares-launch --device tv com.boring.tvhome
 Developer Mode installs expire after 50 hours unless you extend them in the Developer Mode app.
 
 ## Make it the real home screen (rooted TVs)
-On a TV rooted with the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel), `service/` opens
-TV Home when you press **Home**, at startup, and after standby. It reads the remote without grabbing it, and changes
-no system files. Package it with the app and turn on the startup hook:
+On a TV rooted with the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel), there are two options.
+Both live in `service/`, are packaged with the app, and change no files on disk.
+
+**Replace LG's home (recommended).** `service/as-home.sh` runs early at every boot. It copies TV Home into RAM, gives
+the copy LG home's app id (`com.webos.app.home`), bind-mounts it over LG's home, and restarts the app manager so it
+picks the copy up. webOS then opens TV Home wherever it would open LG's home: the Home button, Back from an app, and
+startup (the script also opens it at boot, so the TV no longer starts on the Live TV no-signal screen).
 ```bash
 ares-package . service -e service -e docs -e .git -o /tmp --no-minify
 ```
@@ -66,13 +70,23 @@ ares-package . service -e service -e docs -e .git -o /tmp --no-minify
 ares-install --device tvroot /tmp/com.boring.tvhome_*.ipk
 ```
 ```bash
+ssh root@<tv-ip> 'ln -sf /media/developer/apps/usr/palm/services/com.boring.tvhome.service/as-home.sh /var/lib/webosbrew/init.d/40-tvhome-as-home && reboot'
+```
+Undo: `rm /var/lib/webosbrew/init.d/40-tvhome-as-home` and restart the TV. The running copy is TV Home as it was
+at the last boot, so restart after updating TV Home. TV Home running as the home app keeps its own settings and
+history, separate from the regular TV Home app.
+
+**Or watch the Home key.** `service/service.js` reads the remote without grabbing it and opens TV Home after each Home
+press, at startup and after standby. LG's home still flashes briefly and Back from apps still goes to LG's home.
+```bash
 ssh root@<tv-ip> 'D=/media/developer/apps/usr/palm/services/com.boring.tvhome.service; ln -sf $D/autostart.sh /var/lib/webosbrew/init.d/50-tvhome && sh $D/autostart.sh'
 ```
-Undo with `rm /var/lib/webosbrew/init.d/50-tvhome`, or uninstall TV Home. If Home does nothing, your remote may
-send a different key code; set `HOME_CODE` in `service/service.js` (773 on LG Magic Remotes). If LG's home still covers TV Home, raise the delays in `HOME_DELAYS`.
+Use one option, not both. `HOME_CODE` in `service/service.js` is 773 on LG Magic Remotes; raise `HOME_DELAYS` if
+LG's home still covers TV Home.
 
 ## Limits
 - Without root it's an app, not the system launcher: the Home button opens LG's home.
+- webOS still shows a short splash (TV Home's own dark one) when it has to start TV Home from scratch.
 - Netflix and Hotstar titles open the app, not the exact show, because their deep links need internal IDs that
   TMDB doesn't have. YouTube videos do open directly.
 - The app can't read LG Channels' channel list or Netflix/Hotstar watch history.
