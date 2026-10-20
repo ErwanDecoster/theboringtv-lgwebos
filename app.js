@@ -722,7 +722,10 @@
   // ---------- boot ----------
   // Draw the last home screen straight away (webOS often kills us in the background, so most
   // opens are cold starts), then replace it with fresh data. Kept per profile via store().
-  function booted() { var b = $('boot'); if (b) { b.classList.add('gone'); setTimeout(function () { b.remove(); }, 600); } }
+  function booted() { // fade the loading screen once the (non-blocking) stylesheets have loaded too
+    if (document.readyState !== 'complete') return window.addEventListener('load', booted, {once: true});
+    var b = $('boot'); if (b) { b.classList.add('gone'); setTimeout(function () { b.remove(); }, 700); }
+  }
   var cached = store('homeCache');
   if (cached && cached.base && cached.base.length) {
     heroItems = cached.hero; base = cached.base;

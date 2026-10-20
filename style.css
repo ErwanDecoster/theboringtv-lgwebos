@@ -203,12 +203,4 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
 .editing .app:not(.edit-tile) .disc { box-shadow: 0 0 0 3px rgba(232,234,237,.55); outline: 2px dashed rgba(232,234,237,.7); outline-offset: 6px; }
 .editing .app.focus:not(.edit-tile) .disc { box-shadow: 0 0 0 5px #fff; }
 
-/* loading screen until the first rows are ready (matters at boot, before the network is up) */
-#boot { position: fixed; top: 0; left: 0; width: 1920px; height: 1080px; z-index: 20; background: #0e1014; display: flex;
-  flex-direction: column; align-items: center; justify-content: center; transition: opacity .5s; }
-#boot.gone { opacity: 0; }
-#boot img { width: 140px; height: 140px; margin-bottom: 44px; }
-#boot .bar { width: 260px; height: 4px; border-radius: 2px; background: #2a2d34; overflow: hidden; }
-#boot .bar i { display: block; width: 40%; height: 100%; border-radius: 2px; background: #8ab4f8; animation: bootbar 1.4s ease-in-out infinite; }
-@keyframes bootbar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
-#bootmsg { margin-top: 26px; font-size: 22px; color: #9aa0a6; }
+
