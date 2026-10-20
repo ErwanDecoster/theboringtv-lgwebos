@@ -174,6 +174,10 @@
     {key: 'youtube', title: 'Trending on YouTube row', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'autoplay', title: 'Rotate featured titles', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'clock24', title: 'Clock', opts: [[false, '12-hour'], [true, '24-hour']]},
+    {key: 'weatherCity', title: 'Weather city', hint: 'Auto finds your city from your internet connection', opts: [['auto', 'Auto'],
+      ['Mumbai', 'Mumbai'], ['Delhi', 'Delhi'], ['Bengaluru', 'Bengaluru'], ['Hyderabad', 'Hyderabad'], ['Chennai', 'Chennai'],
+      ['Kolkata', 'Kolkata'], ['Pune', 'Pune'], ['Ahmedabad', 'Ahmedabad'], ['Jaipur', 'Jaipur'], ['Lucknow', 'Lucknow'],
+      ['Chandigarh', 'Chandigarh'], ['Kochi', 'Kochi'], ['off', 'Off']]},
     {key: 'clear', title: 'Continue watching', opts: [['clear', 'Clear history']]}
   ];
   var draft, dirty;
@@ -384,6 +388,43 @@
   function toast(m) { var t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(function () { t.style.display = 'none'; }, 3500); }
   function tick() { var d = new Date(), h = d.getHours(); $('clock').textContent = (S.clock24 ? ('0' + h).slice(-2) : h % 12 || 12) + ':' + ('0' + d.getMinutes()).slice(-2); }
   setInterval(tick, 10000); tick();
+
+  // ---------- weather (Open-Meteo, no key) ----------
+  var WX = { // 24px stroke icons
+    sun: '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>',
+    moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
+    cloud: '<path d="M7 18h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 10.4 3.8 3.8 0 0 0 7 18z"/>',
+    rain: '<path d="M7 15h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 7.4 3.8 3.8 0 0 0 7 15zM9 18l-1 3M13 18l-1 3M17 18l-1 3"/>',
+    snow: '<path d="M7 15h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 7.4 3.8 3.8 0 0 0 7 15zM8.5 19h.01M12 21h.01M15.5 19h.01"/>',
+    storm: '<path d="M7 15h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 7.4 3.8 3.8 0 0 0 7 15zM13 15l-2.5 4h3L11 23"/>',
+    fog: '<path d="M4 9h16M6 13h12M4 17h16"/>'
+  };
+  function wxIcon(code, day) {
+    return code <= 1 ? (day ? 'sun' : 'moon') : code <= 3 ? 'cloud' : code <= 48 ? 'fog' :
+      (code >= 71 && code <= 77) || code === 85 || code === 86 ? 'snow' : code >= 95 ? 'storm' : 'rain';
+  }
+  function weatherLoc() {
+    var city = S.weatherCity || 'auto', saved = store('weatherLoc');
+    if (saved && saved.city === city) return Promise.resolve(saved);
+    var find = city === 'auto'
+      ? get('https://ipapi.co/json/').then(function (r) { return {lat: r.latitude, lon: r.longitude, name: r.city}; })
+      : get('https://geocoding-api.open-meteo.com/v1/search?count=1&name=' + encodeURIComponent(city))
+        .then(function (r) { var g = r.results[0]; return {lat: g.latitude, lon: g.longitude, name: g.name}; });
+    return find.then(function (l) { l.city = city; store('weatherLoc', l); return l; });
+  }
+  function weather() {
+    if (S.weatherCity === 'off') return;
+    weatherLoc().then(function (l) {
+      return get('https://api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code,is_day&latitude=' + l.lat + '&longitude=' + l.lon)
+        .then(function (r) {
+          var c = r.current, w = $('weather');
+          w.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+            WX[wxIcon(c.weather_code, c.is_day)] + '</svg>' + Math.round(c.temperature_2m) + '°';
+          w.title = l.name; w.hidden = false;
+        });
+    }).catch(function (e) { console.warn('weather', e); });
+  }
+  weather(); setInterval(weather, 15 * 60 * 1000);
   $('avatar').textContent = C.NAME;
   document.querySelector('.qav').textContent = C.NAME;
   $('qdim').onclick = function () { closeQuick(); };
