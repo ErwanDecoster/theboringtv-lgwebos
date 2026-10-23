@@ -1,8 +1,8 @@
 # TheBoringTV for LG webOS
 
-> **About this branch (`french-edition`)**
-> A personal fork branch, not an official release and not maintained as a product. It is based on the upstream project and
-> adds things I wanted for my own TV. Nothing here is a request to change upstream; anything useful can be turned into a PR
+> **About this fork**
+> This is a personal fork, and its `main` is not the upstream project's: it is not an official release and not maintained as a product.
+> It is based on the upstream project and adds things I wanted for my own TV. Nothing here is a request to change upstream; anything useful can be turned into a PR
 > if the maintainer wants it.
 >
 > - French interface (a small translation layer in `features/i18n.js`), France as the default region.
