@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- Like shot.html, but prints the focused element after each key (read it with chrome --dump-dom). ?keys=up,right*3,enter&theme=tvos -->
+<html><head><meta charset="utf-8"></head><body><pre id="out">waiting</pre><iframe id="tv" style="width:1920px;height:1080px;border:0"></iframe>
+<script>
+  var q = location.search, th = (/theme=(\w+)/.exec(q) || [])[1] || 'tvos', keys = [];
+  ((/keys=([\w,*]*)/.exec(q) || [])[1] || '').split(',').filter(Boolean).forEach(function (k) {
+    var m = /^(\w+)\*(\d+)$/.exec(k), n = m ? +m[2] : 1; for (var i = 0; i < n; i++) keys.push(m ? m[1] : k);
+  });
+  var tv = document.getElementById('tv'), out = document.getElementById('out'), log = [];
+  tv.src = '../../index.html?theme=' + th;
+  var CODE = {down: 40, up: 38, left: 37, right: 39, enter: 13, back: 27};
+  function who(w) { var f = w.document.querySelector('.focus'); return f ? (f.textContent || f.id || f.className).replace(/\s+/g, ' ').trim().slice(0, 40) : '(none)'; }
+  tv.onload = function () { setTimeout(function () {
+    var w = tv.contentWindow, i = 0; log.push('start: ' + who(w));
+    (function step() {
+      if (i >= keys.length) { out.textContent = log.join('\n'); return; }
+      var k = keys[i++];
+      w.document.dispatchEvent(new w.KeyboardEvent('keydown', {keyCode: CODE[k], which: CODE[k], key: k, bubbles: true}));
+      w.document.dispatchEvent(new w.KeyboardEvent('keyup', {keyCode: CODE[k], which: CODE[k], key: k, bubbles: true}));
+      setTimeout(function () { log.push(k + ' -> ' + who(w)); step(); }, 500);
+    })();
+  }, 9000); };
+</script></body></html>

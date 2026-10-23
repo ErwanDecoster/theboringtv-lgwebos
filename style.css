@@ -11,7 +11,7 @@ svg { width: 32px; height: 32px; display: block; }
 #bg img.on { opacity: 1; }
 #shade { background:
   linear-gradient(90deg, rgba(14,16,20,.95) 0%, rgba(14,16,20,.7) 32%, rgba(14,16,20,0) 62%),
-  linear-gradient(0deg, #0e1014 30%, rgba(14,16,20,.6) 48%, rgba(14,16,20,0) 70%); transition: background .4s; }
+  linear-gradient(0deg, #0e1014 30%, rgba(14,16,20,.6) 48%, rgba(14,16,20,0) 70%); }   /* no transition: gradients do not interpolate, it only repainted the full screen */
 .scrolled #shade { background: rgba(14,16,20,.88); }
 
 /* top bar */
@@ -127,7 +127,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 .qbtn { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 12px; }
 .qbtn.qlabeled { width: auto; padding: 0 22px 0 16px; border-radius: 28px; }
 .qbtn .qbl2 { margin-left: 10px; font-size: 22px; font-weight: 500; white-space: nowrap; }
-.qav { width: 56px; height: 56px; margin: 0; font-size: 24px; }
+.qav { width: 56px; height: 56px; margin: 0; font-size: 24px; font-weight: 600; color: #0e1014; }
 .tile { flex: 1; display: flex; align-items: center; height: 86px; padding: 0 22px; margin-right: 14px; border-radius: 22px;
   background: #303134; color: #e8eaed; transition: background .15s, color .15s, transform .15s; overflow: hidden; }
 .tile:last-child { margin-right: 0; }
@@ -163,7 +163,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 .scrolled #shade { background: linear-gradient(180deg, rgba(14,16,20,.35) 0%, rgba(14,16,20,.55) 100%); }
 
 /* performance: own GPU layers for things that move, no blurred shadows on focus */
-main, .strip { will-change: transform; }
+main { will-change: transform; }   /* the row being moved gets its own layer from the script (heat() in app.js) */
 .card, .app { contain: layout style; }
 .focus .pic, .focus .disc { box-shadow: 0 0 0 5px #fff; }
 .card .ttl { text-shadow: 0 1px 3px rgba(0,0,0,.9); }
@@ -220,5 +220,15 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
 .editing .app.focus:not(.edit-tile) .disc { box-shadow: 0 0 0 5px #fff; }
 
 
+
+/* settings chips that wrap onto several lines (long lists: cities, languages) */
+.srow .strip.wrap { white-space: normal; transform: none !important; }
+.srow .strip.wrap .chip { margin-bottom: 12px; }
+
+/* the TV asks for less motion: no slow zoom on the ambient pictures, no drifting colour on the loading screen */
+@media (prefers-reduced-motion: reduce) {
+  #ambient img { animation: none !important; }
+  #boot .sw { animation: none !important; }
+}
 
 .off { display: none !important; }

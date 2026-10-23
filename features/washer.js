@@ -80,6 +80,6 @@
     ws.onerror = function () { /* onclose follows */ };
   }
   open();
-  setInterval(function () { render(); if (socket && Date.now() - lastMsg > 70000) socket.close(); }, 30000);  // the countdown, and a link that went silent
+  setInterval(function () { if (!document.hidden) render(); if (socket && Date.now() - lastMsg > 70000) socket.close(); }, 30000);  // the countdown, and a link that went silent
   window.addEventListener('beforeunload', function () { stopped = true; });
 })();

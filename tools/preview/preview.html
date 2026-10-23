@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>TV Home – aperçu</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; font: 15px -apple-system, "Helvetica Neue", sans-serif; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; background: #000; }
+  iframe { width: 1920px; height: 1080px; border: 0; display: block; }
+  #bar { position: fixed; right: 12px; bottom: 12px; z-index: 9; display: flex; align-items: center; background: rgba(30,30,32,.88); color: #ddd;
+    border-radius: 12px; padding: 6px 8px; }
+  #bar span { margin: 0 8px; opacity: .7; }
+  #bar button { font: inherit; color: #ddd; background: #3a3a3c; border: 0; border-radius: 8px; padding: 6px 12px; margin-left: 6px; cursor: pointer; }
+  #bar button.on { background: #fff; color: #000; }
+</style>
+</head>
+<body>
+<div id="stage"><iframe id="tv" title="TV Home"></iframe></div>
+<div id="bar"><span>Aperçu 1920×1080 · flèches, Entrée, Échap</span><button data-t="google">Google TV</button><button data-t="tvos">Apple TV</button></div>
+<script>
+  var tv = document.getElementById('tv'), stage = document.getElementById('stage');
+  function fit() { var s = Math.min(innerWidth / 1920, innerHeight / 1080); stage.style.transform = 'scale(' + s + ')'; }
+  addEventListener('resize', fit); fit();
+  function show(theme) {
+    document.querySelectorAll('#bar button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === theme); });
+    tv.src = '../../index.html?theme=' + theme;
+  }
+  document.querySelectorAll('#bar button').forEach(function (b) { b.onclick = function () { history.replaceState(null, '', '?theme=' + b.dataset.t); show(b.dataset.t); }; });
+  tv.onload = function () { try { tv.contentWindow.focus(); } catch (e) { /* ignore */ } };
+  document.addEventListener('click', function (e) { if (e.target.tagName !== 'BUTTON') tv.contentWindow.focus(); });
+  show((/[?&]theme=(\w+)/.exec(location.search) || [])[1] || 'tvos');
+</script>
+</body>
+</html>

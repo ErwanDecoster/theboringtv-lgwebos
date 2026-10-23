@@ -13,6 +13,7 @@
   "splashBackground": "splash.png",
   "iconColor": "#16181c",
   "handlesRelaunch": true,
+  "appCategory": ["home"],
   "inAppSearchParams": "{\"contentTarget\":\"q=$SEARCH_KEYWORD\"}",
   "inAppVoiceIntent": "{\"contentTarget\":{\"intent\":\"$INTENT\",\"intentParam\":\"$INTENT_PARAM\",\"languageCode\":\"$LANG_CODE\",\"voiceEngine\":\"$VOICE_ENGINE\"}}"
 }

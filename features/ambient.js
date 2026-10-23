@@ -26,7 +26,8 @@
   function tick() {
     var d = new Date(), h = d.getHours();
     clock.firstChild.textContent = (TV.S.clock24 ? ('0' + h).slice(-2) : h % 12 || 12) + ':' + ('0' + d.getMinutes()).slice(-2);
-    clock.lastChild.textContent = d.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
+    var date = d.toLocaleDateString(window.UI_LOCALE || 'en-US', {weekday: 'long', month: 'long', day: 'numeric'});   // "vendredi 23 octobre" / "Friday, October 23"
+    clock.lastChild.textContent = date.charAt(0).toUpperCase() + date.slice(1);
   }
   function slide() {
     var it = list[idx % list.length], img = imgs[flip], old = imgs[1 - flip];
@@ -67,7 +68,7 @@
     if (ev.type === 'mousemove' && last - shownAt < 800) return; // ignore the jitter right as it appears
     ev.stopImmediatePropagation(); ev.preventDefault();
     hide();
-    if (ev.type === 'keydown' && ev.keyCode === 13 && cur) TV.itemOk(cur); // OK opens the shown title
+    if (ev.type === 'keydown' && ev.keyCode === 13 && !ev.repeat && cur && Date.now() - shownAt > 1500) TV.itemOk(cur); // OK opens the shown title (not the one that just came up)
   }
   ['keydown', 'keyup', 'click', 'mousedown', 'mouseup', 'wheel', 'mousemove'].forEach(function (t) {
     window.addEventListener(t, input, {capture: true, passive: false});

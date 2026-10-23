@@ -14,7 +14,7 @@
     // top bar, quick settings, boot
     'Getting your shows ready...': 'Préparation de vos programmes...', 'For you': 'Pour vous', 'Live': 'En direct', 'Search': 'Recherche', 'Apps': 'Applications',
     'Open': 'Ouvrir', 'Your apps': 'Vos applications', 'All settings': 'Tous les réglages', 'Quick settings': 'Réglages rapides', 'Settings': 'Réglages',
-    'Screensaver': 'Économiseur d’écran', 'Screen off': 'Écran éteint', 'Audio keeps playing': 'Le son continue', 'Accessibility': 'Accessibilité',
+    'Screensaver': 'Économiseur', 'Screen off': 'Écran éteint', 'Any key wakes it': 'Une touche rallume', 'Audio keeps playing': 'Le son continue', 'Settings applied': 'Réglages appliqués', 'Press OK again to confirm': 'Appuyez de nouveau sur OK pour confirmer', 'Hold OK on an app to hide or move it': 'Maintenez OK sur une app pour la masquer ou la déplacer', 'Loading…': 'Chargement…', 'Accessibility': 'Accessibilité',
     'Audio output': 'Sortie audio', 'Picture': 'Image', 'Sound mode': 'Mode son', 'Brightness': 'Luminosité', 'Inputs': 'Entrées', 'Needs root': 'Nécessite le root',
     'Not connected': 'Non connecté', 'Connected': 'Connecté', 'Home Wi-Fi': 'Wi-Fi maison', 'Muted': 'Muet', 'On': 'Activé', 'Off': 'Désactivé', 'Auto': 'Auto',
     'TV speaker': 'Haut-parleurs TV', 'Bluetooth soundbar': 'Barre de son Bluetooth', 'Optical': 'Optique', 'Headphones': 'Casque', 'TV + external': 'TV + externe',
@@ -24,7 +24,7 @@
     'Clear Voice': 'Voix claire', 'AI Sound Pro': 'AI Sound Pro',
     // rows
     'Top picks for you': 'Sélection pour vous', 'Picked for you': 'Choisis pour vous', 'New on your services': 'Nouveautés sur vos services', 'Top rated on your services': 'Les mieux notés sur vos services',
-    'New on your services row': 'Rangée Nouveautés', 'Live TV tab': 'Onglet En direct', 'The Live tab at the top of the home screen': 'L’onglet En direct en haut de l’accueil', 'Profile button': 'Bouton de profil', 'The round button at the top left; profiles stay available in the settings': 'Le bouton rond en haut à gauche ; les profils restent accessibles dans les réglages', 'Show': 'Afficher', 'Hide': 'Masquer', 'Recent releases included in your subscriptions': 'Sorties récentes incluses dans vos abonnements', 'Popular on your services': 'Populaire sur vos services', 'Popular now': 'Populaire en ce moment',
+    'New on your services row': 'Rangée Nouveautés', 'Live TV tab': 'Onglet En direct', 'The Live tab at the top of the home screen': 'L’onglet En direct en haut de l’accueil', 'Profile button': 'Bouton de profil', 'The round button at the top of the home screen; profiles stay available from the quick settings': 'Le bouton rond en haut de l’accueil ; les profils restent accessibles depuis les réglages rapides', 'Show': 'Afficher', 'Hide': 'Masquer', 'Recent releases included in your subscriptions': 'Sorties récentes incluses dans vos abonnements', 'Popular on your services': 'Populaire sur vos services', 'Popular now': 'Populaire en ce moment',
     'Trending today': 'Tendances du jour', 'Trending on YouTube': 'Tendances YouTube', 'Continue watching': 'Reprendre la lecture', 'My watchlist': 'Ma liste',
     'More like this': 'Titres similaires', 'Where to watch': 'Où regarder', 'Edit apps': 'Modifier les applications', 'Move': 'Déplacer', 'Remove from home': 'Retirer de l’accueil',
     'Not on your services': 'Pas sur vos services', 'Trailer': 'Bande-annonce', '＋ Watchlist': '＋ Ma liste', '✓ In watchlist': '✓ Dans ma liste',
@@ -37,6 +37,7 @@
     'Streaming rows': 'Rangées de streaming', 'Services with similar catalogues (Netflix, Disney+, Canal+...) in one row; Crunchyroll and YouTube keep their own': 'Les services aux catalogues proches (Netflix, Disney+, Canal+...) dans une seule rangée ; Crunchyroll et YouTube gardent la leur',
     'Similar services together': 'Services proches ensemble', 'One row per service': 'Une rangée par service',
     'Trending on YouTube row': 'Rangée Tendances YouTube', 'Rotate featured titles': 'Faire défiler les titres à la une', 'Clock': 'Horloge', '12-hour': '12 heures', '24-hour': '24 heures',
+    'Theme': 'Thème', 'The look of the home screen': 'L’apparence de l’écran d’accueil', 'Google TV': 'Google TV', 'Apple TV': 'Apple TV',
     'App icon shape': 'Forme des icônes', 'A full circle, or a square with rounded corners': 'Un cercle complet, ou un carré aux angles arrondis', 'Circle': 'Cercle', 'Rounded square': 'Carré arrondi',
     'Weather city': 'Ville de la météo', 'Auto finds your city from your internet connection': 'Auto trouve votre ville grâce à votre connexion Internet',
     'Hold OK on an app to move or remove it': 'Maintenez OK sur une application pour la déplacer ou la retirer', 'Show hidden apps': 'Afficher les applications masquées',
@@ -54,8 +55,8 @@
     'Space': 'Espace', 'Search movies & shows': 'Rechercher des films et séries', 'Trending searches': 'Recherches tendance', 'Searching…': 'Recherche...',
     'Search failed, check the connection': 'Échec de la recherche, vérifiez la connexion', 'Search YouTube': 'Rechercher sur YouTube', 'Checking where to watch…': 'Recherche des plateformes...',
     // profiles
-    'Who’s watching?': 'Qui regarde ?', 'Add profile': 'Ajouter un profil', 'Edit profiles': 'Modifier les profils', 'Edit profile': 'Modifier le profil', 'Choose a profile to edit': 'Choisissez un profil à modifier',
-    'Name': 'Nom', 'Colour': 'Couleur', 'Kids profile': 'Profil enfant', 'Kids': 'Enfants', 'Guest': 'Invité', 'Mom': 'Maman', 'Dad': 'Papa', 'Grandma': 'Mamie', 'Grandpa': 'Papi', 'Friend': 'Ami',
+    'Who’s watching?': 'Qui regarde ?', 'Profile name': 'Nom du profil', 'Other…': 'Autre…', 'Type a name': 'Saisissez un nom', 'Type a name first': 'Saisissez d’abord un nom', 'This name is already taken': 'Ce nom est déjà pris', 'Confirm?': 'Confirmer ?', 'Switch profile': 'Changer de profil', 'Add profile': 'Ajouter un profil', 'Edit profiles': 'Modifier les profils', 'Edit profile': 'Modifier le profil', 'Choose a profile to edit': 'Choisissez un profil à modifier',
+    'Name': 'Nom', 'Colour': 'Couleur', 'Kids profile': 'Profil enfant', 'Kids': 'Enfants', 'Guest': 'Invité', 'Mom': 'Maman', 'Dad': 'Papa', 'Grandma': 'Mamie', 'Grandpa': 'Papi', 'Friend': 'Ami', 'Me': 'Moi',
     'Family-friendly titles only; hides Browser, ZEE5, Apps Store and Settings': 'Uniquement des titres tout public ; masque le navigateur, ZEE5, le Store et les réglages',
     // messages
     'Waiting for the internet…': 'En attente d’Internet...', 'Hidden apps are back': 'Les applications masquées sont de retour', 'Continue watching cleared': 'Historique effacé',
@@ -81,6 +82,7 @@
     [/^✓ (.+)$/, function (m) { return '✓ ' + (DICT[m[1]] || m[1]); }],   // the tick in front of a selected chip
     [/^Popular on (.+)$/, function (m) { return 'Populaire sur ' + m[1]; }],
     [/^Popular in (.+)$/, function (m) { return 'Populaire en ' + lang(m[1]); }],
+    [/^Profile (\d+)$/, function (m) { return 'Profil ' + m[1]; }],
     [/^New on (.+)$/, function (m) { return 'Nouveautés sur ' + m[1]; }],
     [/^Because you viewed (.*?)((?:  ·  .*)?)$/, function (m) { return 'Parce que vous avez regardé ' + m[1] + inline(m[2]); }],
     [/^Top rated on your services  ·  (.*)$/, function (m) { return 'Les mieux notés sur vos services  ·  ' + inline('  ·  ' + m[1]).replace(/^  ·  /, ''); }],
@@ -113,7 +115,15 @@
       .replace(/  ·  (\d[\d.]*[MK]) views$/, '  ·  $1 vues').replace(/(^|  ·  )(\d+) seasons?(?=  ·  |$)/g, function (m, p, n) { return p + n + (n > 1 ? ' saisons' : ' saison'); });
   }
 
+  // the same lines come back all the time (a service's tag on every card of a row): remember the answers
+  var memo = Object.create(null), memoSize = 0;
   function tr(text) {
+    if (text in memo) return memo[text];
+    var out = tr1(text);
+    if (text.length <= 220) { if (memoSize++ > 3000) { memo = Object.create(null); memoSize = 0; } memo[text] = out; }
+    return out;
+  }
+  function tr1(text) {
     var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(text), core = m[2], out;
     if (!core || core.length > 220) return text;
     if (Object.prototype.hasOwnProperty.call(DICT, core)) out = DICT[core];
@@ -125,8 +135,13 @@
   }
 
   // Titles and descriptions of films are content, not interface: never touched.
-  var SKIP = '.ttl, .dbody h1, .dsub, .pcard:not(:has(.padd)) b, #wxpanel .wxcity';
-  function skipped(el) { return el.matches && el.matches(SKIP); }
+  var SKIP = '.ttl, .dbody h1, .dsub, .pcard b, #wxpanel .wxcity';   // .pcard b: profile names, except on the "add a profile" card (see skipped)
+  function skipped(el) {
+    if (!el.matches || !el.matches(SKIP)) return false;
+    if (el.matches('.pcard b')) { var card = el.closest('.pcard'); return !(card && card.querySelector('.padd')); }
+    return true;
+  }
+  function inSkipped(el) { var c = el && el.closest && el.closest(SKIP); return !!c && skipped(c); }
   function walk(node) {
     if (node.nodeType === 3) { var t = tr(node.nodeValue); if (t !== node.nodeValue) node.nodeValue = t; return; }
     if (node.nodeType !== 1 || node.nodeName === 'SCRIPT' || node.nodeName === 'STYLE' || skipped(node)) return;
@@ -135,13 +150,16 @@
     for (var c = node.firstChild; c; c = c.nextSibling) walk(c);
   }
 
+  // For the page's own code: translate a piece of the page it has just built, and mark it so the observer below leaves it alone.
+  window.I18N = {t: tr, done: function (node) { walk(node); if (node.setAttribute) node.setAttribute('data-i18n', '1'); }};
+
   function start() {
     walk(document.body);
     new MutationObserver(function (list) {
       list.forEach(function (mu) {
-        if (mu.type === 'characterData') { var p = mu.target.parentNode; if (p && !(p.matches && p.closest && p.closest(SKIP))) walk(mu.target); }
+        if (mu.type === 'characterData') { var p = mu.target.parentNode; if (p && !(p.matches && p.closest && inSkipped(p))) walk(mu.target); }
         else if (mu.type === 'attributes') walk(mu.target);
-        else mu.addedNodes.forEach(function (n) { if (!(n.nodeType === 1 && n.parentNode && n.parentNode.closest && n.parentNode.closest(SKIP))) walk(n); });
+        else mu.addedNodes.forEach(function (n) { if (n.nodeType === 1 && n.hasAttribute('data-i18n')) return; if (!(n.nodeType === 1 && n.parentNode && n.parentNode.closest && inSkipped(n.parentNode))) walk(n); });
       });
     }).observe(document.body, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title']});
   }

@@ -58,8 +58,11 @@
       var tr = ((d.videos || {}).results || []).filter(function (v) { return v.site === 'YouTube' && v.type === 'Trailer'; })[0];
       if (tr) btns.appendChild(btn('Trailer', function () { TV.launch('youtube.leanback.v4', {contentTarget: 'https://www.youtube.com/tv?v=' + tr.key}); }));
     }
-    var wl = btn(inList(it) ? '✓ In watchlist' : '＋ Watchlist', function () { wl.textContent = toggle(it) ? '✓ In watchlist' : '＋ Watchlist'; });
-    btns.appendChild(wl);
+    if (!d) btns.appendChild(TV.el('span', 'dnone', 'Loading…'));   // no button to press until the real ones are there (a quick second OK would land on the watchlist)
+    else {
+      var wl = btn(inList(it) ? '✓ In watchlist' : '＋ Watchlist', function () { wl.textContent = toggle(it) ? '✓ In watchlist' : '＋ Watchlist'; });
+      btns.appendChild(wl);
+    }
     box.querySelector('.dextra').textContent = extra;
     var recs = d && ((d.recommendations || {}).results || []).filter(function (m) { return m.backdrop_path; }).slice(0, 20);
     if (recs && recs.length) {

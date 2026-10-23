@@ -4,6 +4,10 @@
   var $ = function (id) { return document.getElementById(id); };
   var IMG = 'https://image.tmdb.org/t/p/';
   var onTV = typeof window.PalmServiceBridge === 'function';
+  // Start-up timings (ms since the page was opened): kept in localStorage.perfMarks and sent to the helper's log, see reportPerf().
+  var marks = {};
+  function mark(name) { marks[name] = Math.round(performance.now()); try { performance.mark(name); } catch (e) { /* not available */ } }
+  mark('scripts');
 
   // Set by profiles.js (loaded before this file): {prefix, name, color, extraQ, hideApps}.
   var P = window.TV_PROFILE || {};
@@ -20,9 +24,12 @@
   var COUNTRIES = [['IN', 'India'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['AE', 'UAE'],
     ['SG', 'Singapore'], ['DE', 'Germany'], ['FR', 'France'], ['JP', 'Japan'], ['KR', 'South Korea'], ['BR', 'Brazil']];
   var S = {region: C.REGION, langs: ['fr'], services: C.SERVICES.filter(function (x) { return x.on; }).map(function (x) { return x.name; }),
-    youtube: true, autoplay: true, clock24: true, weatherCity: 'Paris', iconShape: 'circle', mergeRows: true, newRow: true, liveTab: true, profileBtn: true, uiLang: 'fr'};
+    youtube: true, autoplay: true, clock24: true, weatherCity: (window.KEYS || {}).WEATHER_CITY || 'Paris', iconShape: 'circle', mergeRows: true, newRow: true, liveTab: true, profileBtn: true, uiLang: 'fr', theme: 'google'};
   Object.assign(S, store('settings') || {});
   document.body.classList.toggle('shape-rounded', S.iconShape === 'rounded');
+  // Settings → Theme; "?theme=tvos" in the address overrides it (handy for previews in a browser)
+  var themeParam = /[?&]theme=(\w+)/.exec(location.search);
+  document.body.classList.toggle('theme-tvos', (themeParam ? themeParam[1] : S.theme) === 'tvos');
   C.REGION = S.region;
   var SERVICES = C.SERVICES.filter(function (x) { return S.services.indexOf(x.name) >= 0; });
   function pickLabel() {
@@ -49,7 +56,28 @@
   // ---------- apps: the TV denies listLaunchPoints to non-system apps, so probe our list ----------
   var apps = [];
   // Root helpers in the TV Home service (service/service.js), reached over the TV's loopback.
+  // The quick settings' picture, sound, backlight, inputs and screen-off calls are served by the helper service (port 45621).
+  function helper(path, body) {
+    return fetch('http://127.0.0.1:45621' + path, body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)}).then(function (r) { return r.json(); });
+  }
+  var HELPER_CALLS = {
+    getAv: function () {
+      return helper('/state').then(function (r) {
+        return {returnValue: true, picture: {pictureMode: r.picture.mode, backlight: r.picture.backlight}, sound: {soundMode: r.sound.mode}};
+      });
+    },
+    getInputs: function () {
+      return helper('/inputs').then(function (r) {
+        if (!r.inputs) return r;
+        return {returnValue: true, inputs: r.inputs.map(function (i) { return {id: i.appId, label: i.name, connected: i.connected, active: i.active}; })};
+      });
+    },
+    setPicture: function (p) { return helper('/picture', p.pictureMode ? {mode: p.pictureMode} : {backlight: p.backlight}); },
+    setSound: function (p) { return helper('/sound', {mode: p.soundMode}); },
+    screenOff: function () { return helper('/screen', {on: false}); }
+  };
   function svc(name, params) {
+    if (HELPER_CALLS[name]) return HELPER_CALLS[name](params || {});
     return fetch('http://127.0.0.1:45620/' + name, {method: 'POST', body: JSON.stringify(params || {})})
       .then(function (r) { return r.json(); });
   }
@@ -74,7 +102,8 @@
   // plain URLs, so no base64 copies are needed. The apps in config.js come first, in that order, with their short titles;
   // each keeps its bundled icon (a 130 px copy of the TV's own) as a fallback if the service stops answering.
   var HELPER = 'http://127.0.0.1:45621';
-  function readIcons() { try { return JSON.parse(localStorage.getItem(ICON_CACHE) || '{}'); } catch (e) { return {}; } }
+  var iconsRaw = null, iconsObj = {};   // parsed once per change: the icon cache is large
+  function readIcons() { try { var raw = localStorage.getItem(ICON_CACHE) || '{}'; if (raw !== iconsRaw) { iconsObj = JSON.parse(raw); iconsRaw = raw; } return iconsObj; } catch (e) { return {}; } }
   function loadAppsFromHelper() {
     // what is plugged into each HDMI port (the service asks the TV); the last answer is kept for when the service is slow or away
     var names = {};
@@ -365,10 +394,16 @@
   var rowsData = [], heroItems = [], base = [], rowProviders = [];
   function buildRows() {
     var extra = rowProviders.map(function (fn) { return fn(); }).filter(Boolean);
-    rowsData = base.slice(0, 2).concat([{title: 'Continue watching', items: recent}], extra, base.slice(2))
+    // the apps come first, right under the featured titles: most evenings the plan is "open Netflix / YouTube", one press down
+    var head = base.slice(0, 2);
+    if (head[1] && head[1].apps) head.reverse();
+    rowsData = head.concat([{title: 'Continue watching', items: recent}], extra, base.slice(2))
       .filter(function (x) { return (x.apps || x.items).length; });
     if (base.length) render();
   }
+  // Translate a freshly built piece of the page before it is attached: the translator's observer would otherwise walk every new
+  // element after the script ends (~350 ms on the TV for the home screen). Marked nodes are skipped by the observer.
+  function i18n(node) { if (window.I18N) window.I18N.done(node); return node; }
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; }
   function esc(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
 
@@ -444,16 +479,27 @@
     c.item = it; c.onok = function () { TV.itemOk(it); };
     return c;
   }
+  function makeRow(row) {
+    var r = el('section', 'row' + (row.apps ? ' apps-row' : '')), s = el('div', 'strip');
+    r.appendChild(el('h3', '', esc(row.title)));
+    (row.apps || row.items).forEach(function (x) { s.appendChild(row.apps ? appTile(x) : card(x)); });
+    if (row.apps) s.appendChild(editTile());
+    r.appendChild(s);
+    return i18n(r);
+  }
+  // Only the rows that show up on the first screen are built before the first paint; the others follow one at a time right after it
+  // (the first frame of a big page is slow to lay out on the TV's CPU). A newer render() cancels the pending ones.
+  var FIRST_ROWS = 3, renderSeq = 0;
   function render() {
     var root = $('rows'); root.innerHTML = '';
-    rowsData.forEach(function (row) {
-      var r = el('section', 'row' + (row.apps ? ' apps-row' : '')), s = el('div', 'strip');
-      r.appendChild(el('h3', '', esc(row.title)));
-      (row.apps || row.items).forEach(function (x) { s.appendChild(row.apps ? appTile(x) : card(x)); });
-      if (row.apps) s.appendChild(editTile());
-      r.appendChild(s); root.appendChild(r);
-    });
-    var g = $('grid'); g.innerHTML = '';
+    var seq = ++renderSeq, later = rowsData.slice(FIRST_ROWS);
+    rowsData.slice(0, FIRST_ROWS).forEach(function (row) { root.appendChild(makeRow(row)); });
+    if (later.length) requestAnimationFrame(function () { setTimeout(function addNext() {
+      if (seq !== renderSeq) return;
+      root.appendChild(makeRow(later.shift()));
+      if (later.length) setTimeout(addNext, 0); else buildNav();
+    }, 0); });
+    var g = el('div');   // built apart and translated in one go, then moved into #grid
     var shown = visibleApps(), hid = hiddenApps();
     if (editing) {
       g.appendChild(el('h3', 'gh', 'On the home screen'));
@@ -466,6 +512,9 @@
       g.appendChild(editTile());
       if (hid.length) { g.appendChild(el('h3', 'gh', 'Hidden apps')); hid.forEach(function (a) { g.appendChild(appTile(a)); }); }
     }
+    [].forEach.call(g.children, i18n);
+    var grid = $('grid'); grid.innerHTML = '';
+    while (g.firstChild) grid.appendChild(g.firstChild);
     renderEditBar();
     buildNav();
   }
@@ -480,8 +529,9 @@
     {key: 'youtube', title: 'Trending on YouTube row', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'autoplay', title: 'Rotate featured titles', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'liveTab', title: 'Live TV tab', hint: 'The Live tab at the top of the home screen', opts: [[true, 'Show'], [false, 'Hide']]},
-    {key: 'profileBtn', title: 'Profile button', hint: 'The round button at the top left; profiles stay available in the settings', opts: [[true, 'Show'], [false, 'Hide']]},
+    {key: 'profileBtn', title: 'Profile button', hint: 'The round button at the top of the home screen; profiles stay available from the quick settings', opts: [[true, 'Show'], [false, 'Hide']]},
     {key: 'clock24', title: 'Clock', opts: [[false, '12-hour'], [true, '24-hour']]},
+    {key: 'theme', title: 'Theme', hint: 'The look of the home screen', opts: [['google', 'Google TV'], ['tvos', 'Apple TV']]},
     {key: 'iconShape', title: 'App icon shape', hint: 'A full circle, or a square with rounded corners', opts: [['circle', 'Circle'], ['rounded', 'Rounded square']]},
     {key: 'weatherCity', title: 'Weather city', hint: 'Auto finds your city from your internet connection', opts: [['auto', 'Auto'], ['Lyon', 'Lyon'], ['Paris', 'Paris'], ['Marseille', 'Marseille'], ['Toulouse', 'Toulouse'],
       ['Mumbai', 'Mumbai'], ['Delhi', 'Delhi'], ['Bengaluru', 'Bengaluru'], ['Hyderabad', 'Hyderabad'], ['Chennai', 'Chennai'],
@@ -493,7 +543,7 @@
   var draft, dirty;
   function renderSettings() {
     $('settings').innerHTML = '<div class="shead"><h2>Settings</h2><span id="sclose" class="f" title="Close">&#10005;</span></div>' + SROWS.map(function (row, r) {
-      return '<section class="srow"><h4>' + row.title + '</h4>' + (row.hint ? '<p>' + row.hint + '</p>' : '') + '<div class="strip">' +
+      return '<section class="srow"><h4>' + row.title + '</h4>' + (row.hint ? '<p>' + row.hint + '</p>' : '') + '<div class="strip' + (row.opts.length > 5 ? ' wrap' : '') + '">' +
         row.opts.map(function (o, i) {
           var v = draft[row.key], sel = row.many ? v.indexOf(o[0]) >= 0 : v === o[0];
           return '<span class="chip f' + (sel ? ' sel' : '') + '" data-r="' + r + '" data-i="' + i + '">' + (sel && row.many ? '✓ ' : '') + o[1] + '</span>';
@@ -507,24 +557,44 @@
     draft = JSON.parse(JSON.stringify(S)); dirty = false; prevView = view;
     renderSettings(); $('spanel').hidden = $('sdim').hidden = false; pos.r = 1; pos.c = 0; mem = {}; view = 'settings'; buildNav();
   }
+  var RELOAD_KEYS = ['region', 'langs', 'services', 'mergeRows', 'newRow', 'youtube', 'uiLang', 'weatherCity'];
+  function applyLive() {
+    document.body.classList.toggle('shape-rounded', S.iconShape === 'rounded');
+    if (!themeParam) document.body.classList.toggle('theme-tvos', S.theme === 'tvos');
+    document.querySelector('[data-act=live]').classList.toggle('off', S.liveTab === false);
+    $('avatar').classList.toggle('off', S.profileBtn === false);
+    tick();
+  }
   // `back`: the Back key (one step back, to the quick settings if that is where we came from); otherwise the X button (close everything).
   function closeSettings(back) {
     var toQuick = back === true && settingsFromQuick;
     settingsFromQuick = false;
     if (dirty) {
-      store('settings', draft); store('homeCache', null);
-      // changed settings rebuild the home screen by reloading the page; remember to reopen the quick settings afterwards
-      if (toQuick) { try { sessionStorage.setItem('reopenQuick', '1'); } catch (e) { /* storage unavailable: lands on the home screen */ } }
-      location.reload(); return;
+      store('settings', draft);
+      // settings that change what is fetched or drawn from it rebuild the home screen by reloading the page; the others apply at once
+      var reload = RELOAD_KEYS.some(function (k) { return JSON.stringify(draft[k]) !== JSON.stringify(S[k]); });
+      if (reload) {
+        store('homeCache', null);
+        // remember to reopen the quick settings afterwards
+        if (toQuick) { try { sessionStorage.setItem('reopenQuick', '1'); } catch (e) { /* storage unavailable: lands on the home screen */ } }
+        location.reload(); return;
+      }
+      Object.assign(S, JSON.parse(JSON.stringify(draft)));
+      applyLive();
+      toast('Settings applied');
     }
-    $('spanel').hidden = $('sdim').hidden = true; pos.r = 0; setView(prevView);
+    $('spanel').hidden = $('sdim').hidden = true; pos.r = 0; setView(prevView); focusGear();
     if (toQuick) openQuick();
   }
   function openSettingsFromQuick() { closeQuick(); openSettings(); settingsFromQuick = true; }
+  var clearArmed = false;
   function choose(e) {
     var row = SROWS[+e.dataset.r], o = row.opts[+e.dataset.i], v = draft[row.key];
     if (row.key === 'unhide') { store('appHidden', []); refreshApps(); return toast('Hidden apps are back'); }
-    if (row.key === 'clear') { recent = []; store('recent', []); buildRows(); return toast('Continue watching cleared'); }
+    if (row.key === 'clear') {
+      if (!clearArmed) { clearArmed = true; setTimeout(function () { clearArmed = false; }, 4000); return toast('Press OK again to confirm'); }
+      clearArmed = false; recent = []; store('recent', []); buildRows(); return toast('Continue watching cleared');
+    }
     if (row.many) { var i = v.indexOf(o[0]); i >= 0 ? v.splice(i, 1) : v.push(o[0]); } else draft[row.key] = o[0];
     dirty = true;
     var r = pos.r, c = pos.c; renderSettings(); buildNav(); pos.r = r; pos.c = c; focus();
@@ -570,7 +640,9 @@
     $('qpanel').hidden = $('qdim').hidden = false;
     view = 'quick'; pos.r = 1; pos.c = 0; mem = {}; buildNav();
   }
-  function closeQuick() { $('qpanel').hidden = $('qdim').hidden = true; pos.r = 0; setView(prevView); }
+  // back on the gear that opened the panel
+  function focusGear() { var g = document.querySelector('[data-act=settings]'); if (g) focusEl(g); }
+  function closeQuick() { $('qpanel').hidden = $('qdim').hidden = true; pos.r = 0; setView(prevView); focusGear(); }
   function volume(dir) {
     luna('com.webos.service.audio/master/' + dir).then(function (r) { setText('qvol', r.volume); }, function (e) { toast('Volume: ' + (e.errorText || e)); });
   }
@@ -580,6 +652,7 @@
       settings: openSettingsFromQuick,
       tip: openSettingsFromQuick,
       close: closeQuick,
+      profile: function () { closeQuick(); TV.onAvatar(); },   // the round button of the panel: who is watching
       screensaver: function () { launch('com.webos.app.screensaver'); },
       // webOS 25 has no visible inputcommon window (it is a transparent native card: a black screen). Its input picker is the
       // overlay app quickinputpicker; keep inputcommon for firmware that does not have it.
@@ -596,7 +669,7 @@
       sound: function () { var m = next(SOUNDS, av.snd); setAv('setSound', {soundMode: m}, function () { av.snd = m; setText('qsnd', label(SOUNDS, m)); }); },
       bldown: function () { var b = Math.max(0, (av.bl || 0) - 10); setAv('setPicture', {backlight: b}, function () { av.bl = b; setText('qbl', b); }); },
       blup: function () { var b = Math.min(100, (av.bl || 0) + 10); setAv('setPicture', {backlight: b}, function () { av.bl = b; setText('qbl', b); }); },
-      screenoff: function () { closeQuick(); svc('screenOff').then(function () {}, function () { toast('Needs the TV Home service (rooted TV)'); }); },
+      screenoff: function () { closeQuick(); svc('screenOff').then(function (r) { if (r.returnValue === false) toast('Not supported on this TV'); }, function () { toast('Needs the TV Home service (rooted TV)'); }); },
       input: function () { closeQuick(); launch(btn.dataset.id); },
       voldown: function () { volume('volumeDown'); },
       volup: function () { volume('volumeUp'); }
@@ -713,15 +786,19 @@
     $('dots').innerHTML = heroItems.map(function (_, i) { return '<i' + (i === heroIdx ? ' class="on"' : '') + '></i>'; }).join('');
     setBg(it.bg, it.blur);
   }
-  function stepHero(d) { heroIdx = (heroIdx + d + heroItems.length) % heroItems.length; showHero(); }
+  // The featured titles rotate on their own, slowly, until the first time someone steps through them by hand (or the TV asks for less motion).
+  var heroAuto = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function stepHero(d, auto) { if (!auto) heroAuto = false; heroIdx = (heroIdx + d + heroItems.length) % heroItems.length; showHero(); }
   var idleSince = Date.now();
-  setInterval(function () { if (S.autoplay && view === 'home' && pos.r <= 1 && Date.now() - idleSince > 7000) stepHero(1); }, 8000);
+  setInterval(function () { if (S.autoplay && heroAuto && view === 'home' && pos.r <= 1 && Date.now() - idleSince > 11000) stepHero(1, true); }, 12000);
 
   // ---------- navigation (keys + pointer) ----------
   var nav = [], pos = {r: 0, c: 0}, mem = {}, view = 'home', prevView = 'home';
   function all(sel) { return [].slice.call(document.querySelectorAll(sel)); }
   function buildNav() {
-    var top = all('#top .f').filter(function (e) { return !e.classList.contains('off'); });
+    // left to right as drawn: a theme may lay the top bar out differently from the order of the markup
+    var top = all('#top .f').filter(function (e) { return !e.classList.contains('off') && e.getClientRects().length; })
+      .sort(function (a, b) { return a.getBoundingClientRect().left - b.getBoundingClientRect().left; });
     if (views[view]) {
       nav = views[view].nav();
     } else if (view === 'quick') {
@@ -741,6 +818,9 @@
     pos.r = Math.min(pos.r, nav.length - 1);
     focus();
   }
+  // Only the row being moved gets its own GPU layer (a long row is ~14000 px wide: one layer per row costs a lot of memory on the TV).
+  var hotStrip = null;
+  function heat(strip) { if (hotStrip === strip) return; if (hotStrip) hotStrip.style.willChange = ''; hotStrip = strip; strip.style.willChange = 'transform'; }
   function focus(fromPointer) {
     var cur = document.querySelector('.focus'); if (cur) cur.classList.remove('focus');
     if (!nav.length) return;
@@ -750,8 +830,9 @@
     var strip = e.parentNode;
     if (views[view]) { if (views[view].onFocus) views[view].onFocus(e, pos); return; }
     if (view === 'quick') return;
+    if (strip.classList.contains('strip') && view !== 'settings') heat(strip);
     if (strip.classList.contains('strip') && view !== 'settings') strip.style.transform = 'translateX(' + -stripShift(e) + 'px)';
-    else if (strip.classList.contains('strip')) strip.style.transform = 'translateX(' + -Math.max(0, e.offsetLeft - (pos.c ? 40 : 0)) + 'px)'; // chips of the settings sheet
+    else if (strip.classList.contains('strip') && !strip.classList.contains('wrap')) strip.style.transform = 'translateX(' + -Math.max(0, e.offsetLeft - (pos.c ? 40 : 0)) + 'px)'; // chips of the settings sheet
     var section = e.closest('.row, .srow');
     var dy = 0, max = Math.max(0, $(view).scrollHeight - 1080 + 40);   // stop at the last row
     if (view === 'home') {
@@ -779,6 +860,7 @@
     document.body.classList.toggle('scrolled', v !== 'home');
     buildNav();
     if (wasEditing) render();
+    if (v === 'apps' && !editing && !store('hintEdit')) { store('hintEdit', 1); toast('Hold OK on an app to hide or move it'); }
   }
   function activate(e) {
     if (e.dataset.tab) return setView(e.dataset.tab);
@@ -795,8 +877,27 @@
   }
   // Column to land on when moving to row `to`. Rows of cards each remember their own column; the grid of apps is a real grid,
   // so there the column stays the same (the focus() clamp handles a shorter last row).
-  function columnFor(to) { return view === 'apps' && pos.r > 0 && to > 0 ? pos.c : (mem[to] || 0); }
-  var holdTimer = 0, holdFired = false, moving = null;
+  function columnFor(to) {
+    // up to the top bar from the page below: land on the current tab (as tvOS does), not on whatever comes first
+    if (to === 0 && (view === 'home' || view === 'apps') && nav[0]) { var t = nav[0].indexOf(document.querySelector('.tab.cur') || document.querySelector('.tab')); if (t >= 0) return t; }
+    return view === 'apps' && pos.r > 0 && to > 0 ? pos.c : (mem[to] || 0);
+  }
+  var holdTimer = 0, holdFired = false, moving = null, keyAt = 0;
+  // Settings chips that wrap onto several lines: up / down move between the lines first, to the chip nearest in the same column.
+  function wrapStep(d) {
+    var cur = nav[pos.r] && nav[pos.r][pos.c];
+    if (!cur || !cur.parentNode.classList.contains('wrap')) return false;
+    var best = null, bestDist = 1e9, cx = cur.offsetLeft + cur.offsetWidth / 2, line = null;
+    [].forEach.call(cur.parentNode.children, function (c) {
+      var dy = (c.offsetTop - cur.offsetTop) * d;
+      if (dy <= 0) return;
+      if (line === null || dy < line) { line = dy; best = null; bestDist = 1e9; }
+      if (dy === line) { var dist = Math.abs(c.offsetLeft + c.offsetWidth / 2 - cx); if (dist < bestDist) { bestDist = dist; best = c; } }
+    });
+    if (!best) return false;
+    pos.c = nav[pos.r].indexOf(best);
+    return true;
+  }
   document.addEventListener('keyup', function (ev) {
     if (ev.keyCode !== 13) return;
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; var cur = nav[pos.r] && nav[pos.r][pos.c]; if (cur && cur.onok) cur.onok(); }
@@ -807,20 +908,23 @@
     if (moving && (ev.keyCode === 37 || ev.keyCode === 39)) { ev.preventDefault(); return moveApp(ev.keyCode === 39 ? 1 : -1); }
     if (moving && (ev.keyCode === 461 || ev.keyCode === 27 || ev.keyCode === 8)) { ev.preventDefault(); return endMove(); }
     var k = ev.keyCode, onHero = view === 'home' && pos.r === 1;
-    idleSince = Date.now();
+    idleSince = keyAt = Date.now();
     if (views[view] && views[view].keydown && views[view].keydown(ev)) { ev.preventDefault(); return; } // view handled it
     if (k === 37) { if (onHero) stepHero(-1); else pos.c--; }
     else if (k === 39) { if (onHero) stepHero(1); else pos.c++; }
-    else if (k === 38) { if (pos.r > 0) { pos.c = columnFor(pos.r - 1); pos.r--; } }
+    else if ((k === 38 || k === 40) && view === 'settings' && wrapStep(k === 40 ? 1 : -1)) { /* moved to another line of the same chips */ }
+    else if (k === 38) { if (pos.r > 0) { pos.c = columnFor(pos.r - 1); pos.r-- ; } }
     else if (k === 40) { if (pos.r < nav.length - 1) { pos.c = columnFor(pos.r + 1); pos.r++; } }
     else if (k === 13) {
       ev.preventDefault();
-      var cur = nav[pos.r][pos.c];
+      var cur = nav[pos.r] && nav[pos.r][pos.c];
+      if (!cur) return;     // nothing to press yet (details still loading)
       if (moving) return endMove();
       if (cur && cur.app && !editing) { // app tile: launch on release, menu if held
         if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; startEditing(); }, 550);
         return;
       }
+      if (ev.repeat) return;     // holding OK must not press again and again (open, then launch)
       return activate(cur);
     }
     else if (k === 461 || k === 27 || k === 8) { if (editing && !views[view]) { ev.preventDefault(); return setEditing(false); } // Back cancels the edit mode first
@@ -849,7 +953,13 @@
     for (var r = 0; r < nav.length; r++) { var c = nav[r].indexOf(e); if (c >= 0) return {r: r, c: c, e: e}; }
     return null;
   }
-  document.addEventListener('mouseover', function (ev) {
+  // Only a real pointer movement moves the focus: when the keys slide the content under a pointer that is not moving, the browser
+  // sends a hover too, and that must not take the focus back.
+  var mouseAt = {x: -1, y: -1};   // the same object for every event
+  document.addEventListener('mousemove', function (ev) {
+    if (ev.screenX === mouseAt.x && ev.screenY === mouseAt.y) return;
+    mouseAt.x = ev.screenX; mouseAt.y = ev.screenY;
+    if (Date.now() - keyAt < 400) return;
     var p = locate(ev.target); idleSince = Date.now();
     if (p && (p.r !== pos.r || p.c !== pos.c)) { pos.r = p.r; pos.c = p.c; focus(true); if (p.e.item) bgFor(p.e.item, document.body.classList.contains('scrolled')); }
   });
@@ -862,7 +972,8 @@
   var toastT;
   function toast(m) { var t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(function () { t.style.display = 'none'; }, 3500); }
   function tick() { var d = new Date(), h = d.getHours(); $('clock').textContent = (S.clock24 ? ('0' + h).slice(-2) : h % 12 || 12) + ':' + ('0' + d.getMinutes()).slice(-2); }
-  setInterval(tick, 10000); tick();
+  setInterval(function () { if (!document.hidden) tick(); }, 10000); tick();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });   // webOS keeps the page alive behind other apps
 
   // ---------- weather (Open-Meteo, no key) ----------
   var WX = { // 24px stroke icons
@@ -903,7 +1014,7 @@
         });
     }).catch(function (e) { console.warn('weather', e); });
   }
-  weather(); setInterval(weather, 15 * 60 * 1000);
+  weather(); setInterval(function () { if (!document.hidden) weather(); }, 15 * 60 * 1000);
   $('avatar').textContent = C.NAME;
   if (S.liveTab === false) document.querySelector('[data-act=live]').classList.add('off');
   if (S.profileBtn === false) $('avatar').classList.add('off');
@@ -955,6 +1066,7 @@
     addView: function (name, def) { views[name] = def; },
     openView: openView, closeView: closeView,
     rebuild: function (r, c) { if (r != null) { pos.r = r; pos.c = c || 0; } buildNav(); },
+    pos: function () { return pos; },
     addRow: function (fn) { rowProviders.push(fn); },   // fn() -> {title, items} | null, shown after Continue watching
     refresh: function () { buildRows(); },
     addTab: function (label, viewName) {
@@ -964,8 +1076,13 @@
     },
     addSetting: function (row, def) { if (S[row.key] === undefined) S[row.key] = def; SROWS.splice(SROWS.length - 1, 0, row); }
   };
-  if (P.name) { $('avatar').textContent = document.querySelector('.qav').textContent = P.name.charAt(0).toUpperCase(); }
-  if (P.color) $('avatar').style.background = P.color;
+  // the standard profile names are stored in English: the letter of the avatar is the one of the translated name
+  var pname = P.name ? (window.I18N ? window.I18N.t(P.name) : P.name) : '';
+  if (pname) { $('avatar').textContent = document.querySelector('.qav').textContent = pname.charAt(0).toUpperCase(); }
+  $('avatar').title = document.querySelector('.qav').title = 'Switch profile';
+  $('avatar').setAttribute('aria-label', pname + ' · Switch profile');
+  // the same colour on the home screen and in the quick settings, whatever the theme
+  $('avatar').style.background = document.querySelector('.qav').style.background = P.color || '#8ab4f8';
   // ---------- weather side panel ----------
   var WXTEXT = {0: 'Clear', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Cloudy', 45: 'Fog', 48: 'Fog', 51: 'Light drizzle', 53: 'Drizzle',
     55: 'Heavy drizzle', 61: 'Light rain', 63: 'Rain', 65: 'Heavy rain', 66: 'Freezing rain', 67: 'Freezing rain', 71: 'Light snow',
@@ -1031,24 +1148,53 @@
   // ---------- boot ----------
   // Draw the last home screen straight away (webOS often kills us in the background, so most
   // opens are cold starts), then replace it with fresh data. Kept per profile via store().
-  function booted() { // fade the loading screen once the (non-blocking) stylesheets have loaded too
-    if (document.readyState !== 'complete') return window.addEventListener('load', booted, {once: true});
-    var b = $('boot'); if (b) { b.classList.add('gone'); setTimeout(function () { b.remove(); }, 700); }
+  // The stylesheets are plain blocking links (local files), so the page is styled as soon as it is drawn: the loading screen goes away
+  // as soon as there is something to show, without waiting for the window "load" (which waits for the network images too).
+  function booted() {
+    var b = $('boot'); if (!b || b.classList.contains('gone')) return;
+    mark('boot-hidden');
+    b.classList.add('gone'); setTimeout(function () { b.remove(); }, 700);
+    setTimeout(reportPerf, 4000);
   }
+  function reportPerf() {
+    var paint = {}, nav = {};
+    try { performance.getEntriesByType('paint').forEach(function (p) { paint[p.name] = Math.round(p.startTime); }); } catch (e) { /* not available */ }
+    try { var n = performance.getEntriesByType('navigation')[0]; if (n) nav = {dcl: Math.round(n.domContentLoadedEventEnd), load: Math.round(n.loadEventEnd)}; } catch (e) { /* not available */ }
+    var rep = {at: new Date().toISOString(), cached: !!cachedSig, marks: marks, scripts: window.__m || [], paint: paint, nav: nav};
+    try { localStorage.perfMarks = JSON.stringify(rep); } catch (e) { /* storage unavailable */ }
+    if (onTV) fetch(HELPER + '/log', {method: 'POST', body: JSON.stringify({perf: rep})}).catch(function () { /* the helper is optional */ });
+  }
+  var bgSeen = false;
+  ['bgA', 'bgB'].forEach(function (id) { $(id).addEventListener('load', function () { if (!bgSeen) { bgSeen = true; mark('first-bg'); } }); });
   var cached = store('homeCache');
+  mark('cache-parsed');
+  var cachedSig = '';
   if (cached && cached.base && cached.base.length) {
     heroItems = cached.hero; base = cached.base;
-    buildRows(); showHero(); pos.r = 1; focus(); booted();
+    cachedSig = JSON.stringify({hero: heroItems, base: base});   // to tell later whether the fresh data is any different
+    buildRows(); mark('rows-built'); showHero(); mark('hero-shown'); pos.r = 1; focus(); mark('cache-drawn'); booted();
   }
-  var tries = 0;
+  var tries = 0, drawnEarly = false;
   function loadHome() { return loadApps().then(function () {
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
     return safe(tmdb('watch/providers/tv', '&watch_region=' + C.REGION)).then(function (pr) {
       var providers = pr ? pr.results : [];
       var rowsFor = function (extra, titleOf) { return Promise.all(SERVICES.map(function (sv) { return safe(serviceRow(sv, providers, extra, titleOf && titleOf(sv))); })); };
+      var pMine = providers.length ? safe(forYou(providers)) : null, pRated = providers.length ? safe(topRated(providers)) : null;
+      // First start with no cached screen: show the featured titles and the apps as soon as those two answers are in, instead of waiting
+      // for the slowest of the 15 or so requests
+      if (!cached) Promise.all([pMine, pRated]).then(function (x) {
+        var seen = {}, early = [];
+        (x[0] || []).concat(x[1] || []).forEach(function (it) { var k = keyOf(it); if (!seen[k]) { seen[k] = 1; early.push(it); } });
+        if (!early.length || drawnEarly || cachedSig) return;
+        drawnEarly = true;
+        heroItems = early.slice(0, 6);
+        base = [{title: 'Picked for you', items: early.slice(6)}, {title: 'Your apps', apps: visibleApps()}];
+        buildRows(); showHero(); pos.r = 1; focus(); mark('early-drawn'); booted();
+      });
       return Promise.all([
-        providers.length ? safe(forYou(providers)) : null,
-        providers.length ? safe(topRated(providers)) : null,
+        pMine,
+        pRated,
         rowsFor(),
         S.newRow ? rowsFor(recentWindow(), function (sv) { return 'New on ' + sv.name; }) : null,
         S.youtube ? safe(youtube()) : null
@@ -1072,14 +1218,21 @@
       base = [{title: 'Picked for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
         .concat(fresh.filter(function (x) { return !own(x); }), popular.filter(function (x) { return !own(x); }), r[4] ? [r[4]] : [],
           fresh.filter(own), popular.filter(own));
+      var bake = function () { base.slice(0, 5).forEach(function (row) { (row.items || []).slice(0, 6).forEach(function (it) { bakeAhead(it.blur); }); }); }; // first screens ready
+      mark('net-home-ready');
+      // Same as what the cached screen already shows: nothing to rebuild (a rebuild throws away ~100 elements, decodes the images again
+      // and can take the focus away)
+      if (cachedSig && JSON.stringify({hero: heroItems, base: base}) === cachedSig) { bake(); return; }
       store('homeCache', {hero: heroItems, base: base});
-      var first = !cached; // keep the user's place if they already started moving around the cached screen
+      var first = !cached && !drawnEarly; // keep the user's place if they already started moving around the cached screen
       buildRows(); showHero(); booted();
-      base.slice(0, 5).forEach(function (row) { (row.items || []).slice(0, 6).forEach(function (it) { bakeAhead(it.blur); }); }); // first screens ready
+      bake();
       if (first) { pos.r = 1; focus(); }
     });
   }); }
+  mark('before-loadHome');
   loadHome();
+  mark('after-loadHome');
   // Back from the settings reloaded the page (a setting changed): put the quick settings back where the user left them.
   try { if (sessionStorage.getItem('reopenQuick')) { sessionStorage.removeItem('reopenQuick'); openQuick(); } } catch (e) { /* storage unavailable */ }
 })();

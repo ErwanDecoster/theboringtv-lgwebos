@@ -31,3 +31,21 @@ body.profiles-open #top { opacity: 0; }
 #prof .pchip.focus { background: #fff; color: #202124; transform: scale(1.08); }
 #prof .pdot { width: 30px; height: 30px; border-radius: 50%; }
 #prof .pacts { margin-top: 44px; }
+
+/* free-text name: the field and the on-screen keyboard */
+#prof .pfield { display: flex; align-items: center; justify-content: center; min-width: 520px; height: 84px; margin: 6px 0 30px; padding: 0 36px;
+  border-radius: 42px; background: #303134; font-size: 40px; }
+#prof .ptext.dim { color: #80868b; }
+#prof .pfield .caret { width: 3px; height: 44px; margin-left: 4px; background: #8ab4f8; animation: sblink 1s steps(1) infinite; }
+#prof .pkb { margin-top: 8px; }
+#prof .pkrow { display: flex; justify-content: center; margin-bottom: 12px; }
+#prof .pkey { width: 84px; height: 72px; margin: 0 6px; border-radius: 14px; background: #303134; color: #e8eaed; font-size: 32px;
+  display: flex; align-items: center; justify-content: center; transition: transform .12s; }
+#prof .pkey.pwide { width: 200px; font-size: 26px; }
+#prof .pkey.focus { background: #fff; color: #202124; transform: scale(1.08); }
+#prof .pkrow .pbtn { margin: 0 6px; }
+/* edit mode: a pencil on every profile (not on the "add" card, the last one) */
+#prof.pedit .pcard::after { content: '\270E'; position: absolute; top: 6px; right: 34px; width: 48px; height: 48px; border-radius: 50%;
+  background: #fff; color: #202124; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+#prof.pedit .pcard:last-child::after { display: none; }
+#prof .pkrow .pbtn { display: flex; align-items: center; justify-content: center; height: 72px; padding: 0 30px; }

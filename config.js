@@ -3,7 +3,7 @@ window.CONFIG = {
   YT_KEY: (window.KEYS || {}).YT_KEY,
   REGION: 'FR',
   LANG: 'fr-FR',
-  NAME: 'N',
+  NAME: (window.KEYS || {}).NAME || 'N',   // the letter of the avatar when there is no profile (set NAME in keys.js)
   // Services the app knows. `on` = shown as a "Popular on …" row by default (changeable in Settings). `match` = TMDB provider name; `app` = webOS app id; `jw` = JustWatch package code.
   SERVICES: [
     {name: 'Netflix', match: 'netflix', app: 'netflix', jw: 'nfx', on: true},

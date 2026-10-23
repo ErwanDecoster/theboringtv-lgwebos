@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- For screenshots: loads the home page, waits for its data, then plays remote keys given in ?keys=up,right*3,enter (name*N repeats N times).
+     ?theme=google|tvos as for the page itself. -->
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000}iframe{width:1920px;height:1080px;border:0;display:block}</style></head>
+<body><iframe id="tv"></iframe>
+<script>
+  var q = location.search, th = (/theme=(\w+)/.exec(q) || [])[1] || 'tvos';
+  var keys = [];
+  ((/keys=([\w,*]*)/.exec(q) || [])[1] || '').split(',').filter(Boolean).forEach(function (k) {
+    var m = /^(\w+)\*(\d+)$/.exec(k), n = m ? +m[2] : 1;
+    for (var i = 0; i < n; i++) keys.push(m ? m[1] : k);
+  });
+  var tv = document.getElementById('tv'); tv.src = '../../index.html?theme=' + th;
+  var CODE = {down: 40, up: 38, left: 37, right: 39, enter: 13, back: 27};
+  var started = false;   // the page may reload itself (a setting changed): play the keys once
+  tv.onload = function () { if (started) return; started = true; setTimeout(play, 9000); };
+  function play() {
+    var i = 0;
+    (function step() {
+      if (i >= keys.length) return;
+      var k = keys[i++], w = tv.contentWindow;
+      w.document.dispatchEvent(new w.KeyboardEvent('keydown', {keyCode: CODE[k], which: CODE[k], key: k, bubbles: true}));
+      w.document.dispatchEvent(new w.KeyboardEvent('keyup', {keyCode: CODE[k], which: CODE[k], key: k, bubbles: true}));
+      setTimeout(step, 700);
+    })();
+  }
+</script></body></html>
