@@ -19,9 +19,10 @@
     ['bn', 'Bengali'], ['mr', 'Marathi'], ['pa', 'Punjabi'], ['gu', 'Gujarati'], ['ko', 'Korean'], ['ja', 'Japanese'], ['es', 'Spanish'], ['fr', 'French']];
   var COUNTRIES = [['IN', 'India'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['AE', 'UAE'],
     ['SG', 'Singapore'], ['DE', 'Germany'], ['FR', 'France'], ['JP', 'Japan'], ['KR', 'South Korea'], ['BR', 'Brazil']];
-  var S = {region: C.REGION, langs: [], services: C.SERVICES.filter(function (x) { return x.on; }).map(function (x) { return x.name; }),
-    youtube: true, autoplay: true, clock24: false};
+  var S = {region: C.REGION, langs: ['fr'], services: C.SERVICES.filter(function (x) { return x.on; }).map(function (x) { return x.name; }),
+    youtube: true, autoplay: true, clock24: true, weatherCity: 'Paris', iconShape: 'circle', mergeRows: true, newRow: true, liveTab: true, profileBtn: true, uiLang: 'fr'};
   Object.assign(S, store('settings') || {});
+  document.body.classList.toggle('shape-rounded', S.iconShape === 'rounded');
   C.REGION = S.region;
   var SERVICES = C.SERVICES.filter(function (x) { return S.services.indexOf(x.name) >= 0; });
   function pickLabel() {
@@ -67,19 +68,58 @@
         if (icons[a.id]) { a.img = icons[a.id]; return null; }
         return svc('getIcon', {id: a.id}).then(function (i) { if (i.icon) a.img = icons[a.id] = i.icon; }, function () {});
       })).then(function () { try { localStorage.setItem(ICON_CACHE, JSON.stringify(icons)); } catch (e) { /* too big or blocked */ } });
-    }).catch(probeApps);
+    }).catch(loadAppsFromHelper).catch(probeApps);
+  }
+  // The Launcher's helper service (rooted TV, port 45621) lists the installed apps and serves their real icons as
+  // plain URLs, so no base64 copies are needed. The apps in config.js come first, in that order, with their short titles;
+  // each keeps its bundled icon (a 130 px copy of the TV's own) as a fallback if the service stops answering.
+  var HELPER = 'http://127.0.0.1:45621';
+  function readIcons() { try { return JSON.parse(localStorage.getItem(ICON_CACHE) || '{}'); } catch (e) { return {}; } }
+  function loadAppsFromHelper() {
+    // what is plugged into each HDMI port (the service asks the TV); the last answer is kept for when the service is slow or away
+    var names = {};
+    try { names = JSON.parse(localStorage.getItem('inputNames') || '{}'); } catch (e) { /* storage unavailable */ }
+    var inputs = fetch(HELPER + '/inputs').then(function (r) { return r.json(); }).then(function (r) {
+      if (r.inputs) { names = {}; r.inputs.forEach(function (i) { names[i.appId] = i.name; }); try { localStorage.setItem('inputNames', JSON.stringify(names)); } catch (e) { /* ignore */ } }
+    }).catch(function () {});
+    return Promise.all([fetch(HELPER + '/apps').then(function (r) { return r.json(); }), inputs]).then(function (both) {
+      var r = both[0];
+      if (!r.apps || !r.apps.length) throw new Error('no apps');
+      var known = {}, rank = {}, icons = readIcons(), missing = [];
+      C.APPS.forEach(function (a, i) { known[a.id] = a; rank[a.id] = i; });
+      apps = r.apps.map(function (a) {
+        var k = known[a.id] || {}, url = a.icon ? HELPER + '/icon/' + encodeURIComponent(a.id) : undefined;
+        if (url && !icons[a.id]) missing.push({id: a.id, url: url});
+        return {id: a.id, title: names[a.id] || k.title || a.title, color: k.color || a.color || '#3c4043', icon: k.icon, img: icons[a.id] || url};
+      }).sort(function (a, b) { return (rank[a.id] === undefined ? 1e4 : rank[a.id]) - (rank[b.id] === undefined ? 1e4 : rank[b.id]); });
+      cacheIcons(missing); // keep them, so the icons are still there when the service is not
+    });
+  }
+  // Fetches each icon once and stores it in the same cache as the service's own getIcon (a data URI by app id).
+  function cacheIcons(list) {
+    if (!list.length) return;
+    var icons = readIcons();
+    Promise.all(list.map(function (m) {
+      return fetch(m.url).then(function (r) { return r.blob(); }).then(function (b) {
+        return new Promise(function (ok) { var f = new FileReader(); f.onload = function () { icons[m.id] = String(f.result); ok(); }; f.onerror = ok; f.readAsDataURL(b); });
+      }).catch(function () {});
+    })).then(function () { try { localStorage.setItem(ICON_CACHE, JSON.stringify(icons)); } catch (e) { /* too big or blocked */ } });
   }
   function probeApps() {
     return Promise.all(C.APPS.map(function (a) {
       return luna('com.webos.applicationManager/getAppLoadStatus', {appId: a.id})
         .then(function (r) { return r.exist ? a : null; }, function () { return a; });
-    })).then(function (list) { apps = list.filter(Boolean); });
+    })).then(function (list) { var icons = readIcons(); apps = list.filter(Boolean); apps.forEach(function (a) { if (icons[a.id]) a.img = icons[a.id]; }); });
   }
   // Apps row order and removed apps are per profile (store); profile.js's hideApps also applies.
   function visibleApps() {
     var hidden = (P.hideApps || []).concat(store('appHidden') || []), order = store('appOrder') || [];
     var rank = function (a) { var i = order.indexOf(a.id); return i < 0 ? 1e4 + apps.indexOf(a) : i; };
     return apps.filter(function (a) { return hidden.indexOf(a.id) < 0; }).sort(function (a, b) { return rank(a) - rank(b); });
+  }
+  function hiddenApps() {
+    var gone = P.hideApps || [], hidden = store('appHidden') || [];
+    return apps.filter(function (a) { return gone.indexOf(a.id) < 0 && hidden.indexOf(a.id) >= 0; });
   }
   function svcFor(name) {
     name = name.toLowerCase();
@@ -94,55 +134,157 @@
     return {
       title: m.title || m.name, sub: m.overview,
       meta: [date.slice(0, 4), type === 'movie' ? 'Movie' : 'Series', m.vote_average ? '★ ' + m.vote_average.toFixed(1) : ''].filter(Boolean).join('  ·  '),
-      img: IMG + 'w500' + pic, bg: IMG + 'w1280' + pic, blur: IMG + 'w300' + pic,
-      src: svc ? svc.name : pickLabel(), svc: svc, tmdb: {type: type, id: m.id}
+      img: IMG + 'w500' + pic, bg: IMG + 'w1280' + pic, blur: IMG + 'w154' + pic,
+      src: svc ? svc.name : pickLabel(), svc: svc, tmdb: {type: type, id: m.id}, pop: m.popularity || 0
     };
   }
   function mix(a, b) { var out = []; for (var i = 0; i < 20; i++) [a[i], b[i]].forEach(function (m) { if (m && m.backdrop_path) out.push(m); }); return out; }
-  function trending() {
-    if (S.langs.length || P.extraQ) { // trending has no language/certification filter, so use popular-and-streamable in the chosen languages
-      var q = '&watch_region=' + C.REGION + '&with_watch_monetization_types=flatrate%7Cfree%7Cads&sort_by=popularity.desc&vote_count.gte=5' + langQ();
-      return Promise.all([tmdb('discover/movie', q), tmdb('discover/tv', q)])
-        .then(function (rs) { return mix(rs[0].results, rs[1].results).map(function (m) { return fromTmdb(m); }); });
-    }
-    return tmdb('trending/all/day').then(function (r) {
-      return r.results.filter(function (m) { return m.backdrop_path && m.media_type !== 'person'; }).map(function (m) { return fromTmdb(m); });
-    });
-  }
-  function serviceRow(svc, providers) {
+  function providerOf(svc, providers) {
     var name = function (x) { return x.provider_name.toLowerCase(); };
-    var p = providers.filter(function (x) { return name(x) === svc.match; })[0] ||
-      providers.filter(function (x) { return name(x).indexOf(svc.match) >= 0; })[0];
+    return providers.filter(function (x) { return name(x) === svc.match; })[0] || providers.filter(function (x) { return name(x).indexOf(svc.match) >= 0; })[0];
+  }
+  // A service's titles, most popular first: only what is INCLUDED in the subscription ("flatrate"). Without that TMDB also returns
+  // what the service only rents or sells. `extra` narrows it (the dates of "New on …").
+  function serviceRow(svc, providers, extra, title) {
+    var p = providerOf(svc, providers);
     if (!p) return Promise.resolve(null);
-    var q = '&watch_region=' + C.REGION + '&with_watch_providers=' + p.provider_id + '&sort_by=popularity.desc' + langQ();
-    return Promise.all([tmdb('discover/tv', q), tmdb('discover/movie', q)]).then(function (rs) {
-      return {title: 'Popular on ' + svc.name, items: mix(rs[0].results, rs[1].results).map(function (m) { return fromTmdb(m, svc); })};
+    var q = '&watch_region=' + C.REGION + '&with_watch_providers=' + p.provider_id + '&with_watch_monetization_types=flatrate&sort_by=popularity.desc' + langQ();
+    return Promise.all([tmdb('discover/tv', q + ((extra && extra.tv) || '')), tmdb('discover/movie', q + ((extra && extra.movie) || ''))]).then(function (rs) {
+      return {title: title || 'Popular on ' + svc.name, svc: svc, items: mix(rs[0].results, rs[1].results).map(function (m) { return fromTmdb(m, svc); })};
     });
   }
-  // JustWatch "popular now" on your services (rooted TV: fetched by the service). Each title already says
-  // which of your services has it, so its card opens the right app straight away.
-  function jwPicks() {
-    var codes = SERVICES.map(function (s) { return s.jw; }).filter(Boolean);
-    if (!codes.length) return Promise.resolve([]);
-    return svc('jwPopular', {packages: codes, first: 40}).then(function (r) {
-      return (r.items || []).map(function (m) {
-        var svc = SERVICES.filter(function (s) { return m.packages.indexOf(s.jw) >= 0; })[0];
-        return {title: m.title, sub: m.sub, img: m.img, bg: m.bg, blur: m.blur || m.img,
-          meta: [m.year, m.type === 'movie' ? 'Movie' : 'Series', m.score ? 'IMDb ' + m.score.toFixed(1) : ''].filter(Boolean).join('  ·  '),
-          src: svc ? 'Popular on ' + svc.name : 'Popular now', svc: svc, tmdb: m.tmdbId ? {type: m.type, id: +m.tmdbId} : null};
-      });
-    });
-  }
-  // Alternate the two feeds, dropping repeats (same TMDB title, or same name when JustWatch has no TMDB id).
-  function mergePicks(a, b) {
-    var seen = {}, out = [];
-    for (var i = 0; i < Math.max(a.length, b.length); i++) [a[i], b[i]].forEach(function (it) {
-      if (!it) return;
-      var k = it.tmdb ? it.tmdb.type + ':' + it.tmdb.id : it.title.toLowerCase();
-      if (!seen[k] && !seen[it.title.toLowerCase()]) { seen[k] = seen[it.title.toLowerCase()] = 1; out.push(it); }
+  // Settings → Streaming rows: the services with similar catalogues (Netflix, Disney+, Canal+...) share one row, the others (Crunchyroll...)
+  // keep their own, wherever they were in the list.
+  // A row with only a card or two (TMDB knows few titles for some services in some countries) is not worth a row of its own.
+  var MIN_ROW_ITEMS = 4;
+  function arrangeServiceRows(rows, mergedTitle) {
+    rows = rows.filter(function (r) { return r && r.items.length >= MIN_ROW_ITEMS || (r && S.mergeRows && r.svc.merge !== false); });
+    if (!S.mergeRows) return rows;
+    var group = rows.filter(function (r) { return r.svc.merge !== false; });
+    if (group.length < 2) return rows;
+    var merged = mergeServiceRows(group, mergedTitle), out = [], placed = false;
+    rows.forEach(function (r) {
+      if (r.svc.merge === false) out.push(r);
+      else if (!placed && merged) { out.push(merged); placed = true; }
     });
     return out;
   }
+  // One row for all of your services instead of a row each. Every list is sorted by TMDB's own popularity, which is the common yardstick,
+  // but movies and series are not on the same scale: each title is measured against the 10th most popular of its own kind, then all
+  // are ranked together. A title on several services appears once and says so; opening it goes to the first of them in your list.
+  function mergeServiceRows(rows, title) {
+    var byKey = {}, all = [];
+    rows.filter(Boolean).forEach(function (row) {
+      row.items.forEach(function (it) {
+        var k = it.tmdb.type + ':' + it.tmdb.id, seen = byKey[k];
+        if (seen) { if (seen.svcs.indexOf(it.svc) < 0) seen.svcs.push(it.svc); return; }
+        it.svcs = [it.svc]; byKey[k] = it; all.push(it);
+      });
+    });
+    if (!all.length) return null;
+    var ref = {};
+    ['movie', 'tv'].forEach(function (t) {
+      var pops = all.filter(function (x) { return x.tmdb.type === t; }).map(function (x) { return x.pop; }).sort(function (a, b) { return b - a; });
+      ref[t] = pops.length ? pops[Math.min(9, pops.length - 1)] || 1 : 1;
+    });
+    all.forEach(function (x) { x.score = x.pop / ref[x.tmdb.type]; });
+    all.sort(function (a, b) { return b.score - a.score; });
+    all.forEach(function (x) { x.src = x.svcs.map(function (s) { return s.name; }).join(', '); x.svc = x.svcs[0]; });
+    return {title: title || 'Popular on your services', items: all.slice(0, 36)};
+  }
+  // ---------- Picked for you ----------
+  // Built from YOUR history: the titles you saved or opened from this screen. TMDB gives, for each, the titles people who liked it liked;
+  // they are scored (newer and saved titles count more, a title suggested by several of yours counts more) and kept only if one of YOUR
+  // services includes it in the subscription. Nothing you already opened or saved is suggested. With no history yet, it falls back to
+  // the best-rated titles on your services (see topRated). Needs one call per candidate to learn where it streams; answers are kept
+  // for a day (localStorage "availCache.v1") so the home screen does not ask again.
+  var AVAIL_KEY = 'availCache.v1', AVAIL_TTL = 24 * 3600e3, avail = null;
+  function readAvail() { if (!avail) { try { avail = JSON.parse(localStorage.getItem(AVAIL_KEY) || '{}'); } catch (e) { avail = {}; } } return avail; }
+  function saveAvail() {
+    var a = readAvail(), keys = Object.keys(a).sort(function (x, y) { return a[y].at - a[x].at; });
+    keys.slice(500).forEach(function (k) { delete a[k]; });
+    try { localStorage.setItem(AVAIL_KEY, JSON.stringify(a)); } catch (e) { /* full: asked again next time */ }
+  }
+  // ids of the providers that include a title in the subscription, in your region
+  function flatrateIds(type, id) {
+    var a = readAvail(), k = type + ':' + id, e = a[k];
+    if (e && Date.now() - e.at < AVAIL_TTL) return Promise.resolve(e.ids);
+    return tmdb(type + '/' + id + '/watch/providers').then(function (r) {
+      var here = (r.results || {})[C.REGION] || {};
+      var ids = (here.flatrate || []).map(function (p) { return p.provider_id; });
+      a[k] = {at: Date.now(), ids: ids};
+      return ids;
+    });
+  }
+  // runs fn over list with at most `size` calls at a time; resolves with the results in order (null where one failed)
+  function pool(list, size, fn) {
+    var out = new Array(list.length), next = 0;
+    function worker() {
+      var i = next++;
+      if (i >= list.length) return Promise.resolve();
+      return fn(list[i], i).then(function (v) { out[i] = v; }, function () { out[i] = null; }).then(worker);
+    }
+    var ws = [];
+    for (var k = 0; k < Math.min(size, list.length); k++) ws.push(worker());
+    return Promise.all(ws).then(function () { return out; });
+  }
+  function keyOf(x) { return x.tmdb.type + ':' + x.tmdb.id; }
+  function minePerProvider(providers) {
+    var mine = {};
+    SERVICES.forEach(function (s) { var p = providerOf(s, providers); if (p) mine[p.provider_id] = s; });
+    return mine;
+  }
+  function forYou(providers) {
+    var mine = minePerProvider(providers), saved = store('watchlist') || [], opened = store('recent') || [], seen = {}, seeds = [], owned = {}, savedKeys = {};
+    saved.forEach(function (x) { if (x.tmdb) savedKeys[keyOf(x)] = 1; });
+    opened.concat(saved).forEach(function (x) { if (x && x.tmdb) { owned[keyOf(x)] = 1; if (!seen[keyOf(x)]) { seen[keyOf(x)] = 1; seeds.push(x); } } });
+    seeds = seeds.slice(0, 8);
+    if (!seeds.length || !Object.keys(mine).length) return Promise.resolve([]);
+    return pool(seeds, 4, function (sd) { return tmdb(sd.tmdb.type + '/' + sd.tmdb.id + '/recommendations').then(function (r) { return r.results || []; }); }).then(function (lists) {
+      var cand = {};
+      lists.forEach(function (res, si) {
+        var weight = (1 - si * 0.08) * (savedKeys[keyOf(seeds[si])] ? 1.4 : 1);
+        (res || []).forEach(function (m, rank) {
+          var type = m.media_type || (m.title ? 'movie' : 'tv'), k = type + ':' + m.id;
+          if (!m.backdrop_path || type === 'person' || owned[k]) return;
+          var gain = weight * (1 - rank / 25) * (0.6 + Math.min(m.vote_average || 0, 9) / 15);
+          var c = cand[k] || (cand[k] = {m: m, type: type, score: 0, best: 0, why: ''});
+          c.score += gain;
+          if (gain > c.best) { c.best = gain; c.why = seeds[si].title; }
+        });
+      });
+      var ranked = Object.keys(cand).map(function (k) { return cand[k]; }).sort(function (x, y) { return y.score - x.score; }).slice(0, 45);
+      return pool(ranked, 6, function (c) { return flatrateIds(c.type, c.m.id); }).then(function (ids) {
+        saveAvail();
+        var out = [];
+        ranked.forEach(function (c, i) {
+          var svcs = [];
+          (ids[i] || []).forEach(function (pid) { if (mine[pid] && svcs.indexOf(mine[pid]) < 0) svcs.push(mine[pid]); });
+          if (!svcs.length) return;           // not on any of your services
+          var it = fromTmdb(c.m, svcs[0]);
+          it.svcs = svcs; it.why = true; it.src = 'Because you viewed ' + c.why;
+          out.push(it);
+        });
+        return out.slice(0, 30);
+      });
+    });
+  }
+  // The fallback (no history yet, or too few suggestions): the best-rated titles included in your subscriptions.
+  function topRated(providers) {
+    var ids = Object.keys(minePerProvider(providers));
+    if (!ids.length) return Promise.resolve([]);
+    var q = '&watch_region=' + C.REGION + '&with_watch_providers=' + ids.join('%7C') + '&with_watch_monetization_types=flatrate&sort_by=vote_average.desc' + langQ();
+    return Promise.all([tmdb('discover/movie', q + '&vote_count.gte=1500'), tmdb('discover/tv', q + '&vote_count.gte=600')]).then(function (rs) {
+      return mix(rs[0].results, rs[1].results).map(function (m) { var it = fromTmdb(m); it.why = true; it.src = 'Top rated on your services'; return it; });
+    });
+  }
+  var NEW_DAYS = 150;
+  function ago0(days) { return new Date(Date.now() - days * 864e5).toISOString().slice(0, 10); }
+  function recentWindow() {
+    return {tv: '&first_air_date.gte=' + ago0(NEW_DAYS) + '&first_air_date.lte=' + ago0(0) + '&vote_count.gte=3',
+      movie: '&primary_release_date.gte=' + ago0(NEW_DAYS) + '&primary_release_date.lte=' + ago0(0) + '&vote_count.gte=3'};
+  }
+
   function youtube() {
     return get('https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&maxResults=20&regionCode=' + C.REGION + '&key=' + C.YT_KEY)
       .then(function (r) {
@@ -230,20 +372,13 @@
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; }
   function esc(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
 
-  // An app without an icon gets its name on its brand colour. The TV reports plain white for several apps (Netflix, YouTube...), and the
-  // name was always white, so it vanished. Dark text on a light colour, white otherwise (WCAG relative luminance; the split is high enough to leave mid-tone brand colours such as Spotify's green alone).
-  function inkFor(color) {
-    var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color || '');
-    if (!m) return '#fff';
-    var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
-    var lin = function (i) { var c = parseInt(h.substr(i, 2), 16) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-    return 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4) > 0.4 ? '#202124' : '#fff';
-  }
   function appTile(a) {
     var t = el('div', 'app f');
-    t.innerHTML = '<div class="disc" style="background:' + a.color + ';color:' + inkFor(a.color) + '">' +
+    t.innerHTML = '<div class="disc" style="background:' + a.color + '">' +
       (a.img || a.icon ? '<img src="' + (a.img || 'icons/' + a.icon) + '" alt="" decoding="async">' : '<span class="txt">' + esc(a.title) + '</span>') + '</div><div class="cap">' + esc(a.title) + '</div>';
-    t.onok = function () { editing ? openAppMenu(a) : launch(a.id); };
+    var pic = t.querySelector('img');
+    if (pic && a.img && a.icon) pic.onerror = function () { pic.onerror = null; pic.src = 'icons/' + a.icon; };
+    t.onok = function () { editing ? editApp(a) : launch(a.id); };
     t.app = a;
     return t;
   }
@@ -251,24 +386,61 @@
   var editing = false;
   var PENCIL = '<svg viewBox="0 0 24 24" style="width:46px;height:46px"><path fill="currentColor" d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
   var CHECK = '<svg viewBox="0 0 24 24" style="width:50px;height:50px"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
+  // The Apps tab in edit mode: the apps of the home screen on top, the hidden ones below, and a bar to choose what OK does on a tile:
+  // hide / show it, or pick it up to put it elsewhere in the order.
+  var editMode = 'hide';
   function editTile() {
-    var t = el('div', 'app f edit-tile', '<div class="disc">' + (editing ? CHECK : PENCIL) + '</div><div class="cap">' + (editing ? 'Done' : 'Edit apps') + '</div>');
-    t.onok = function () { setEditing(!editing); };
+    var t = el('div', 'app f edit-tile', '<div class="disc">' + PENCIL + '</div><div class="cap">Edit apps</div>');
+    t.onok = startEditing;
     return t;
+  }
+  function startEditing() { if (view !== 'apps') setView('apps'); setEditing(true); }
+  function renderEditBar() {
+    var bar = $('editbar'); bar.hidden = !editing; bar.innerHTML = '';
+    if (!editing) return;
+    [['hide', 'Hide / show'], ['order', 'Reorder']].forEach(function (m) {
+      var c = el('span', 'chip f' + (editMode === m[0] ? ' sel' : ''), m[1]);
+      c.onok = function () { endMove(); editMode = m[0]; renderEditBar(); buildNav(); focusEl(bar.children[m[0] === 'hide' ? 0 : 1]); };
+      bar.appendChild(c);
+    });
+    var done = el('span', 'chip f', 'Done'); done.onok = function () { setEditing(false); }; bar.appendChild(done);
   }
   function setEditing(on) {
     editing = on;
     document.body.classList.toggle('editing', editing);
     if (!editing) endMove();
+    editMode = 'hide';
     var keep = view; render(); if (keep !== view) setView(keep);
-    var tiles = document.querySelectorAll('.edit-tile'); for (var i = 0; i < tiles.length; i++) if (!tiles[i].offsetParent) continue; else { focusEl(tiles[i]); break; }
-    toast(editing ? 'Edit mode: OK on an app to move or remove it' : 'Done');
+    if (editing) { pos.r = 1; pos.c = 0; focus(); }
+    else { var tiles = document.querySelectorAll('.edit-tile'); for (var i = 0; i < tiles.length; i++) if (tiles[i].offsetParent) { focusEl(tiles[i]); break; } }
+    toast(editing ? 'Edit mode: choose Hide / show or Reorder, then OK on an app' : 'Done');
+  }
+  // OK on an app in edit mode.
+  function editApp(a) {
+    if (editMode === 'hide') {
+      var hidden = store('appHidden') || [], i = hidden.indexOf(a.id);
+      if (i < 0) hidden.push(a.id); else hidden.splice(i, 1);
+      store('appHidden', hidden); refreshApps();   // focus stays where it is: the next app slides into its place, handy to hide several in a row
+      toast(i < 0 ? a.title + ' hidden from the home screen' : a.title + ' shown on the home screen');
+    } else if (hiddenApps().some(function (h) { return h.id === a.id; })) {
+      toast('Show it on the home screen first');
+    } else {
+      moving = a.id; focusApp(a.id); var t = document.querySelector('.focus'); if (t) t.classList.add('moving');
+      toast('Left / right to move, OK when done');
+    }
+  }
+  // How far a horizontal strip slides so that the focused tile is in the middle of the screen. The strip starts at the left margin and
+  // stops sliding at both ends, so the first and last tiles do not leave an empty gap. Shared by every strip (rows, search, details).
+  function stripShift(e) {
+    var strip = e.parentNode, last = strip.lastElementChild, left = strip.parentNode.getBoundingClientRect().left, width = document.documentElement.clientWidth || 1920;
+    var center = e.offsetLeft + e.offsetWidth / 2, end = last.offsetLeft + last.offsetWidth;
+    return Math.max(0, Math.min(left + center - width / 2, left + end - (width - left)));
   }
   function focusEl(e) { for (var r = 0; r < nav.length; r++) { var c = nav[r].indexOf(e); if (c >= 0) { pos.r = r; pos.c = c; focus(); return; } } }
   function card(it) {
     var c = el('div', 'card f', '<div class="pic"><img src="' + it.img + '" alt="" loading="lazy" decoding="async">' +
       (it.src === 'YouTube' ? '' : '<b class="ttl">' + esc(it.title) + '</b>') + '</div>' +
-      '<div class="cap">' + esc(it.at ? it.svc.name + '  ·  opened ' + ago(it.at) : it.src === 'YouTube' ? it.title : it.meta) + '</div>');
+      '<div class="cap">' + esc(it.at ? it.svc.name + '  ·  opened ' + ago(it.at) : it.src === 'YouTube' ? it.title : ((it.svcs || it.why) ? it.src + '  ·  ' : '') + it.meta) + '</div>');
     c.item = it; c.onok = function () { TV.itemOk(it); };
     return c;
   }
@@ -282,19 +454,36 @@
       r.appendChild(s); root.appendChild(r);
     });
     var g = $('grid'); g.innerHTML = '';
-    visibleApps().forEach(function (a) { g.appendChild(appTile(a)); });
-    g.appendChild(editTile());
+    var shown = visibleApps(), hid = hiddenApps();
+    if (editing) {
+      g.appendChild(el('h3', 'gh', 'On the home screen'));
+      shown.forEach(function (a) { g.appendChild(appTile(a)); });
+      g.appendChild(el('h3', 'gh', 'Hidden apps'));
+      if (hid.length) hid.forEach(function (a) { g.appendChild(appTile(a)); }); else g.appendChild(el('p', 'gh dim', 'No hidden app'));
+    } else {
+      // the Apps tab lists every app: the ones of the home screen, then (if any) the hidden ones in a list of their own
+      shown.forEach(function (a) { g.appendChild(appTile(a)); });
+      g.appendChild(editTile());
+      if (hid.length) { g.appendChild(el('h3', 'gh', 'Hidden apps')); hid.forEach(function (a) { g.appendChild(appTile(a)); }); }
+    }
+    renderEditBar();
     buildNav();
   }
 
   var SROWS = [
+    {key: 'uiLang', title: 'Interface language', hint: 'Menus and messages. The languages of the suggested films are set separately, below', opts: [['fr', 'Français'], ['en', 'English']]},
     {key: 'region', title: 'Country', hint: 'Where to look up what’s streaming', opts: COUNTRIES},
-    {key: 'langs', title: 'Recommendation languages', hint: 'Pick any. None = trending in every language', many: true, opts: LANGS},
-    {key: 'services', title: 'Your streaming services', hint: 'Each gets a “Popular on …” row', many: true, opts: C.SERVICES.map(function (x) { return [x.name, x.name]; })},
+    {key: 'langs', title: 'Recommendation languages', hint: 'Languages of the suggested films and series, not of the menus. Pick any; none = every language', many: true, opts: LANGS},
+    {key: 'services', title: 'Your streaming services', hint: 'Their popular titles show up in the rows below', many: true, opts: C.SERVICES.map(function (x) { return [x.name, x.name]; })},
+    {key: 'mergeRows', title: 'Streaming rows', hint: 'Services with similar catalogues (Netflix, Disney+, Canal+...) in one row; Crunchyroll and YouTube keep their own', opts: [[true, 'Similar services together'], [false, 'One row per service']]},
+    {key: 'newRow', title: 'New on your services row', hint: 'Recent releases included in your subscriptions', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'youtube', title: 'Trending on YouTube row', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'autoplay', title: 'Rotate featured titles', opts: [[true, 'On'], [false, 'Off']]},
+    {key: 'liveTab', title: 'Live TV tab', hint: 'The Live tab at the top of the home screen', opts: [[true, 'Show'], [false, 'Hide']]},
+    {key: 'profileBtn', title: 'Profile button', hint: 'The round button at the top left; profiles stay available in the settings', opts: [[true, 'Show'], [false, 'Hide']]},
     {key: 'clock24', title: 'Clock', opts: [[false, '12-hour'], [true, '24-hour']]},
-    {key: 'weatherCity', title: 'Weather city', hint: 'Auto finds your city from your internet connection', opts: [['auto', 'Auto'],
+    {key: 'iconShape', title: 'App icon shape', hint: 'A full circle, or a square with rounded corners', opts: [['circle', 'Circle'], ['rounded', 'Rounded square']]},
+    {key: 'weatherCity', title: 'Weather city', hint: 'Auto finds your city from your internet connection', opts: [['auto', 'Auto'], ['Lyon', 'Lyon'], ['Paris', 'Paris'], ['Marseille', 'Marseille'], ['Toulouse', 'Toulouse'],
       ['Mumbai', 'Mumbai'], ['Delhi', 'Delhi'], ['Bengaluru', 'Bengaluru'], ['Hyderabad', 'Hyderabad'], ['Chennai', 'Chennai'],
       ['Kolkata', 'Kolkata'], ['Pune', 'Pune'], ['Ahmedabad', 'Ahmedabad'], ['Jaipur', 'Jaipur'], ['Lucknow', 'Lucknow'],
       ['Chandigarh', 'Chandigarh'], ['Kochi', 'Kochi'], ['off', 'Off']]},
@@ -311,14 +500,27 @@
         }).join('') + '</div></section>';
     }).join('');
   }
+  // Settings can be reached from the quick settings panel. Back then goes one step back to that panel; the X button closes everything.
+  var settingsFromQuick = false;
   function openSettings() {
+    settingsFromQuick = false;
     draft = JSON.parse(JSON.stringify(S)); dirty = false; prevView = view;
     renderSettings(); $('spanel').hidden = $('sdim').hidden = false; pos.r = 1; pos.c = 0; mem = {}; view = 'settings'; buildNav();
   }
-  function closeSettings() {
-    if (dirty) { store('settings', draft); store('homeCache', null); location.reload(); return; }
+  // `back`: the Back key (one step back, to the quick settings if that is where we came from); otherwise the X button (close everything).
+  function closeSettings(back) {
+    var toQuick = back === true && settingsFromQuick;
+    settingsFromQuick = false;
+    if (dirty) {
+      store('settings', draft); store('homeCache', null);
+      // changed settings rebuild the home screen by reloading the page; remember to reopen the quick settings afterwards
+      if (toQuick) { try { sessionStorage.setItem('reopenQuick', '1'); } catch (e) { /* storage unavailable: lands on the home screen */ } }
+      location.reload(); return;
+    }
     $('spanel').hidden = $('sdim').hidden = true; pos.r = 0; setView(prevView);
+    if (toQuick) openQuick();
   }
+  function openSettingsFromQuick() { closeQuick(); openSettings(); settingsFromQuick = true; }
   function choose(e) {
     var row = SROWS[+e.dataset.r], o = row.opts[+e.dataset.i], v = draft[row.key];
     if (row.key === 'unhide') { store('appHidden', []); refreshApps(); return toast('Hidden apps are back'); }
@@ -334,7 +536,7 @@
   function setText(id, t) { $(id).textContent = t; }
   function refreshQuick() {
     var d = new Date();
-    setText('qdate', d.toLocaleDateString('en-US', {weekday: 'short', month: 'short', day: 'numeric'}));
+    setText('qdate', d.toLocaleDateString(window.UI_LOCALE || 'en-US', {weekday: 'short', month: 'short', day: 'numeric'}));
     setText('qtime', $('clock').textContent + (S.clock24 ? '' : d.getHours() < 12 ? ' AM' : ' PM'));
     if (!onTV) { setText('qwifi', 'Home Wi-Fi'); setText('qaudio', 'TV speaker'); setText('qbt', 'On'); setText('qvol', '37'); return; }
     luna('com.webos.service.connectionmanager/getStatus').then(function (r) {
@@ -375,12 +577,12 @@
   function quickAct(q, btn) {
     var tvSettings = function (target) { launch('com.palm.app.settings', {target: target}); };
     ({
-      settings: function () { closeQuick(); openSettings(); },
-      tip: function () { closeQuick(); openSettings(); },
+      settings: openSettingsFromQuick,
+      tip: openSettingsFromQuick,
       close: closeQuick,
       screensaver: function () { launch('com.webos.app.screensaver'); },
-      // On some webOS 25 TVs com.webos.app.inputcommon has no visible window (a transparent native card), so Inputs showed a black
-      // screen. The input picker there is the overlay app quickinputpicker; keep inputcommon for firmware that does not have it.
+      // webOS 25 has no visible inputcommon window (it is a transparent native card: a black screen). Its input picker is the
+      // overlay app quickinputpicker; keep inputcommon for firmware that does not have it.
       inputs: function () {
         closeQuick();
         luna('com.webos.applicationManager/getAppLoadStatus', {appId: 'com.webos.app.quickinputpicker'})
@@ -402,22 +604,105 @@
   }
 
   // ---------- hero / background ----------
-  var heroIdx = 0, bgFlip = false, lastBg, lastBlur, bgTimer;
-  function setBlur(src) { if (src && src !== lastBlur) { lastBlur = src; $('bgBlur').src = src; } }
+  var heroIdx = 0, bgFlip = false, blurFlip = false, lastBg, lastBlur, bgTimer;
+  // Puts `src` in an <img> and calls `done` once it shows (Chrome fires `load` on every assignment, even of a src the element already had).
+  function loadInto(img, src, done) { img.onload = done; img.src = src; }
+  // The blurred background is BAKED: each picture is drawn once into a tiny canvas (128x72) with the blur, saturation and darkening applied
+  // there, and the browser's smooth upscaling does the rest. Nothing is blurred on screen any more: a change of background is only the
+  // opacity of two stacked layers, over textures a few KB big. The cards around the focus are baked ahead of time (see warm).
+  var BAKE_W = 128, BAKE_H = 72, baked = {}, bakedOrder = [];
+  function bake(src) {
+    if (baked[src]) return baked[src];
+    var p = baked[src] = new Promise(function (resolve, reject) {
+      var im = new Image();
+      im.onload = function () {
+        var c = document.createElement('canvas'), x = c.getContext('2d');
+        c.width = BAKE_W; c.height = BAKE_H;
+        var pad = 10, W = BAKE_W + pad * 2, H = BAKE_H + pad * 2;                 // draw larger than the canvas so the blur has no pale edge
+        var k = Math.max(W / im.naturalWidth, H / im.naturalHeight), w = im.naturalWidth * k, h = im.naturalHeight * k;
+        if ('filter' in x) x.filter = 'blur(4px) saturate(1.4) brightness(.7)';
+        x.drawImage(im, (BAKE_W - w) / 2, (BAKE_H - h) / 2, w, h);
+        resolve(c);
+      };
+      im.onerror = reject; im.src = src;
+    });
+    p.catch(function () { delete baked[src]; });
+    bakedOrder.push(src);
+    if (bakedOrder.length > 60) delete baked[bakedOrder.shift()];
+    return p;
+  }
+  function loadBlur(layer, src) {
+    return bake(src).then(function (c) { var x = layer.getContext('2d'); x.clearRect(0, 0, BAKE_W, BAKE_H); x.drawImage(c, 0, 0); });
+  }
+  function loadImg(el, src) {
+    return new Promise(function (resolve, reject) {
+      el.onload = function () { el.onload = null; (el.decode ? el.decode() : Promise.resolve()).then(resolve, resolve); };
+      el.onerror = reject; el.src = src;
+    });
+  }
+  // Cross-fades between two stacked layers. The new picture is prepared off-screen on the hidden layer, then fades in ON TOP of the
+  // old one, which stays opaque until it is covered (fading both leaves a moment when neither is opaque). A change asked for while a fade is
+  // running waits for it to end and only the latest request is then shown, so a layer is never reused while still visible (that popped in
+  // instantly) and a fast run of key presses costs one fade, not one per card.
+  var FADE_MS = 400;
+  function makeFader(a, b, load) {
+    var front = b, shown, wanted, wantedLow, busy = false;
+    function finish(src, back, cur) {
+      setTimeout(function () {
+        cur.style.transition = 'none'; cur.className = ''; cur.style.zIndex = 0;
+        busy = false; front = back; shown = src; go();
+      }, FADE_MS + 40);
+    }
+    function go() {
+      if (busy || wanted === shown) return;
+      var src = wanted, first = wantedLow || wanted, back = front === a ? b : a, cur = front;
+      busy = true;
+      back.style.transition = 'none'; back.className = ''; back.style.zIndex = 1; cur.style.zIndex = 0;
+      var abandon = function () { busy = false; if (wanted !== shown) { shown = src; go(); } };
+      var reveal = function () {
+        if (wanted !== src) return abandon();       // moved on while loading: skip this one
+        // Paint the new layer once, invisibly (opacity .01), before fading it in, so the first frame of the fade is not the costly one.
+        back.style.transition = 'none'; back.style.opacity = '.01'; back.className = 'on';
+        requestAnimationFrame(function () { requestAnimationFrame(function () {
+          void back.offsetWidth; back.style.transition = ''; back.style.opacity = '';
+          finish(src, back, cur);
+        }); });
+        if (first !== src && load === loadImg) { var big = new Image(); big.onload = function () { if (shown === src || (busy && wanted === src)) (big.decode ? big.decode() : Promise.resolve()).then(function () { back.src = src; }, function () {}); }; big.src = src; }
+      };
+      load(back, first).then(reveal, abandon);
+    }
+    return {show: function (src, low) { wanted = src; wantedLow = low; go(); }};
+  }
+  var bgFader = makeFader($('bgA'), $('bgB'), loadImg), blurFader = makeFader($('bgBlur'), $('bgBlur2'), loadBlur);
+  function setBlur(src) { if (src && src !== lastBlur) { lastBlur = src; blurFader.show(src); } }
   // Swap backgrounds only once focus rests, so holding an arrow key doesn't decode/blur every card.
   function bgFor(it, scrolled) {
     clearTimeout(bgTimer);
     bgTimer = setTimeout(function () {
-      if (scrolled) setBlur(it && it.blur); else setBg(it ? it.bg : heroItems[heroIdx] && heroItems[heroIdx].bg);
-    }, 300);
+      if (scrolled) setBlur(it && it.blur); else { var h = it || heroItems[heroIdx]; if (h) setBg(h.bg, h.blur); }
+    }, 170);
+    clearTimeout(warmTimer); warmTimer = setTimeout(warm, 150);
   }
-  function setBg(src) {
-    if (!src || src === lastBg) return; lastBg = src;
-    var on = bgFlip ? $('bgA') : $('bgB'), off = bgFlip ? $('bgB') : $('bgA');
-    bgFlip = !bgFlip;
-    on.onload = function () { on.className = 'on'; off.className = ''; };
-    on.src = src;
+  // The background is blurred, so the cards around the focus only need the small picture, fetched ahead of the move: the next press then
+  // finds it cached. The focused card gets the full-size one (it is the one likely to be opened, and its sharp background shows at the top).
+  var warmTimer, warmed = {}, warmKeep = [];
+  function fetchAhead(src) {
+    if (!src || warmed[src]) return; warmed[src] = 1;
+    var im = new Image(); im.src = src; warmKeep.push(im);
+    if (warmKeep.length > 80) warmKeep.shift();
   }
+  function bakeAhead(src) { if (src) bake(src).catch(function () {}); }
+  function warm() {
+    var cur = nav[pos.r] && nav[pos.r][pos.c]; if (!cur || !cur.item) return;
+    bakeAhead(cur.item.blur); fetchAhead(cur.item.bg);
+    [[0, 1], [0, -1], [0, 2], [0, -2], [1, 0], [-1, 0], [0, 3], [1, 1], [-1, 1], [0, 4], [0, 5], [0, 6], [0, -3], [0, -4]].forEach(function (d) {
+      var row = nav[pos.r + d[0]]; if (!row) return;
+      var c = d[0] ? Math.min(pos.c + d[1], row.length - 1) : pos.c + d[1], e = row[c];
+      if (e && e.item) bakeAhead(e.item.blur);
+    });
+  }
+  // `low` (the small picture, usually cached by warm) shows straight away, then the full-size one replaces it once loaded.
+  function setBg(src, low) { if (src && src !== lastBg) { lastBg = src; bgFader.show(src, low); } }
   function showHero() {
     var it = heroItems[heroIdx]; if (!it) return;
     $('heroSrc').textContent = it.src;
@@ -426,7 +711,7 @@
     $('heroSub').textContent = it.sub || '';
     $('heroBtn').textContent = it.svc ? 'Open in ' + it.svc.name : 'Where to watch';
     $('dots').innerHTML = heroItems.map(function (_, i) { return '<i' + (i === heroIdx ? ' class="on"' : '') + '></i>'; }).join('');
-    setBg(it.bg);
+    setBg(it.bg, it.blur);
   }
   function stepHero(d) { heroIdx = (heroIdx + d + heroItems.length) % heroItems.length; showHero(); }
   var idleSince = Date.now();
@@ -436,7 +721,7 @@
   var nav = [], pos = {r: 0, c: 0}, mem = {}, view = 'home', prevView = 'home';
   function all(sel) { return [].slice.call(document.querySelectorAll(sel)); }
   function buildNav() {
-    var top = all('#top .f');
+    var top = all('#top .f').filter(function (e) { return !e.classList.contains('off'); });
     if (views[view]) {
       nav = views[view].nav();
     } else if (view === 'quick') {
@@ -449,6 +734,7 @@
       // rows are whatever the tiles actually wrap into (their top edge), not an assumed number of columns
       var tiles = all('#grid .app'), rowTop = null, line;
       nav = [top];
+      if (editing) nav.push([].slice.call($('editbar').children));
       tiles.forEach(function (t) { if (t.offsetTop !== rowTop) { rowTop = t.offsetTop; line = []; nav.push(line); } line.push(t); });
     }
     nav = nav.filter(function (r) { return r.length; });
@@ -464,11 +750,19 @@
     var strip = e.parentNode;
     if (views[view]) { if (views[view].onFocus) views[view].onFocus(e, pos); return; }
     if (view === 'quick') return;
-    if (strip.classList.contains('strip')) strip.style.transform = 'translateX(' + -Math.max(0, e.offsetLeft - (pos.c ? 40 : 0)) + 'px)';
+    if (strip.classList.contains('strip') && view !== 'settings') strip.style.transform = 'translateX(' + -stripShift(e) + 'px)';
+    else if (strip.classList.contains('strip')) strip.style.transform = 'translateX(' + -Math.max(0, e.offsetLeft - (pos.c ? 40 : 0)) + 'px)'; // chips of the settings sheet
     var section = e.closest('.row, .srow');
-    var rowTop = pos.r === 0 ? 0 : section ? section.offsetTop : e.offsetTop;
-    var dy = view === 'home' ? (section && section.previousElementSibling ? rowTop - 90 : 0) : Math.max(0, rowTop - 400);
-    if (view === 'home') dy = Math.max(0, Math.min(dy, $('home').scrollHeight - 1080 + 40)); // stop at the last row
+    var dy = 0, max = Math.max(0, $(view).scrollHeight - 1080 + 40);   // stop at the last row
+    if (view === 'home') {
+      // The focused row sits in the middle of the screen, but never higher up than the first row of cards (which hides the hero).
+      var first = $('rows').querySelector('.row');
+      if (section && section.previousElementSibling) dy = Math.max(first ? first.offsetTop - 90 : 0, section.offsetTop + section.offsetHeight / 2 - 540);
+    } else {
+      var box = section || e;
+      dy = box.offsetTop + box.offsetHeight / 2 - 540;
+    }
+    dy = Math.max(0, Math.min(dy, max));
     $(view).style.transform = 'translateY(' + -dy + 'px)';
     if (view === 'settings') return;
     document.body.classList.toggle('scrolled', dy > 0);
@@ -481,7 +775,7 @@
     view = v; $('home').hidden = v !== 'home'; $('apps').hidden = v !== 'apps';
     all('.tab').forEach(function (t) { t.classList.toggle('cur', t.dataset.tab === v); });
     $('bg').style.opacity = v === 'home' ? 1 : 0;
-    $('bgBlur').style.visibility = v === 'home' || v === 'settings' || v === 'quick' ? '' : 'hidden';
+    ['bgBlur', 'bgBlur2'].forEach(function (id) { $(id).style.visibility = v === 'home' || v === 'settings' || v === 'quick' ? '' : 'hidden'; });
     document.body.classList.toggle('scrolled', v !== 'home');
     buildNav();
     if (wasEditing) render();
@@ -509,6 +803,7 @@
     holdFired = false;
   });
   document.addEventListener('keydown', function (ev) {
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;   // a text field has the TV keyboard: keys are its own
     if (moving && (ev.keyCode === 37 || ev.keyCode === 39)) { ev.preventDefault(); return moveApp(ev.keyCode === 39 ? 1 : -1); }
     if (moving && (ev.keyCode === 461 || ev.keyCode === 27 || ev.keyCode === 8)) { ev.preventDefault(); return endMove(); }
     var k = ev.keyCode, onHero = view === 'home' && pos.r === 1;
@@ -522,14 +817,14 @@
       ev.preventDefault();
       var cur = nav[pos.r][pos.c];
       if (moving) return endMove();
-      if (cur && cur.app && view !== 'appmenu' && !editing) { // app tile: launch on release, menu if held
-        if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; openAppMenu(cur.app); }, 550);
+      if (cur && cur.app && !editing) { // app tile: launch on release, menu if held
+        if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; startEditing(); }, 550);
         return;
       }
       return activate(cur);
     }
-    else if (k === 461 || k === 27 || k === 8) { if (editing) { ev.preventDefault(); return setEditing(false); } // Back cancels the edit mode first
-      if (views[view]) return views[view].back ? views[view].back() : closeView(); if (view === 'settings') return closeSettings(); if (view === 'quick') return closeQuick(); if (view !== 'home') setView('home'); else { pos.r = 1; pos.c = 0; } }
+    else if (k === 461 || k === 27 || k === 8) { if (editing && !views[view]) { ev.preventDefault(); return setEditing(false); } // Back cancels the edit mode first
+      if (views[view]) return views[view].back ? views[view].back() : closeView(); if (view === 'settings') return closeSettings(true); if (view === 'quick') return closeQuick(); if (view !== 'home') setView('home'); else { pos.r = 1; pos.c = 0; } }
     else return;
     ev.preventDefault();
     focus();
@@ -577,10 +872,11 @@
     rain: '<path d="M7 15h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 7.4 3.8 3.8 0 0 0 7 15zM9 18l-1 3M13 18l-1 3M17 18l-1 3"/>',
     snow: '<path d="M7 15h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 7.4 3.8 3.8 0 0 0 7 15zM8.5 19h.01M12 21h.01M15.5 19h.01"/>',
     storm: '<path d="M7 15h10.5a4 4 0 0 0 .3-8A6 6 0 0 0 6.2 7.4 3.8 3.8 0 0 0 7 15zM13 15l-2.5 4h3L11 23"/>',
-    fog: '<path d="M4 9h16M6 13h12M4 17h16"/>'
+    fog: '<path d="M4 9h16M6 13h12M4 17h16"/>',
+    partly: '<circle cx="8.5" cy="8.5" r="3.2"/><path d="M8.5 2.5v1.3M2.5 8.5h1.3M4.3 4.3l.9.9M12.7 4.3l-.9.9"/><path d="M9 20h8.5a3.6 3.6 0 0 0 .3-7.2A5.3 5.3 0 0 0 8.2 13.4 3.3 3.3 0 0 0 9 20z"/>'
   };
   function wxIcon(code, day) {
-    return code <= 1 ? (day ? 'sun' : 'moon') : code <= 3 ? 'cloud' : code <= 48 ? 'fog' :
+    return code <= 1 ? (day ? 'sun' : 'moon') : code === 2 ? (day ? 'partly' : 'cloud') : code <= 3 ? 'cloud' : code <= 48 ? 'fog' :
       (code >= 71 && code <= 77) || code === 85 || code === 86 ? 'snow' : code >= 95 ? 'storm' : 'rain';
   }
   function wxSvg(code, day) {
@@ -598,16 +894,19 @@
   function weather() {
     if (S.weatherCity === 'off') return;
     weatherLoc().then(function (l) {
-      return get('https://api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code,is_day&latitude=' + l.lat + '&longitude=' + l.lon)
+      return get('https://api.open-meteo.com/v1/forecast?current=temperature_2m,is_day&daily=weather_code&forecast_days=1&timezone=auto&latitude=' + l.lat + '&longitude=' + l.lon)
         .then(function (r) {
           var c = r.current, w = $('weather');
-          w.innerHTML = wxSvg(c.weather_code, c.is_day) + Math.round(c.temperature_2m) + '°';
+          // the icon is the day's forecast (its most notable weather), the number the temperature now
+          w.innerHTML = wxSvg(r.daily.weather_code[0], c.is_day) + Math.round(c.temperature_2m) + '°';
           w.title = l.name; w.hidden = false;
         });
     }).catch(function (e) { console.warn('weather', e); });
   }
   weather(); setInterval(weather, 15 * 60 * 1000);
   $('avatar').textContent = C.NAME;
+  if (S.liveTab === false) document.querySelector('[data-act=live]').classList.add('off');
+  if (S.profileBtn === false) $('avatar').classList.add('off');
   document.querySelector('.qav').textContent = C.NAME;
   $('qdim').onclick = function () { closeQuick(); };
   $('sdim').onclick = function () { closeSettings(); };
@@ -619,21 +918,6 @@
   }
   function focusApp(id) { // put focus back on an app tile after re-rendering
     for (var r = 0; r < nav.length; r++) for (var c = 0; c < nav[r].length; c++) if (nav[r][c].app && nav[r][c].app.id === id) { pos.r = r; pos.c = c; focus(); return; }
-  }
-  var menu = el('div', '', ''); menu.id = 'appmenu'; menu.hidden = true; document.body.appendChild(menu);
-  function openAppMenu(a) {
-    menu.innerHTML = '<h4>' + esc(a.title) + '</h4><span class="chip f" data-m="move">Move</span><span class="chip f" data-m="remove">Remove from home</span><span class="chip f" data-m="cancel">Cancel</span>';
-    [].forEach.call(menu.querySelectorAll('.chip'), function (c) {
-      c.onok = function () {
-        closeView();
-        if (c.dataset.m === 'move') { moving = a.id; focusApp(a.id); var t = document.querySelector('.focus'); if (t) t.classList.add('moving'); toast('Left / right to move, OK when done'); }
-        if (c.dataset.m === 'remove') {
-          store('appHidden', (store('appHidden') || []).concat(a.id)); refreshApps();
-          toast(a.title + ' removed. Settings → Show hidden apps brings it back');
-        }
-      };
-    });
-    openView('appmenu');
   }
   function moveApp(d) {
     var list = visibleApps().map(function (a) { return a.id; }), i = list.indexOf(moving), j = i + d;
@@ -664,7 +948,7 @@
     openItem: openItem,            // default OK on a title: open its service
     itemOk: openItem,              // override to intercept OK on any title card / hero
     onAvatar: openQuick,           // override to change what the avatar does
-    card: card, esc: esc, el: el, toast: toast, setBg: setBg, setBlur: setBlur,
+    card: card, esc: esc, el: el, toast: toast, setBg: setBg, setBlur: setBlur, stripShift: stripShift,
     heroItems: function () { return heroItems; },
     view: function () { return view; },
     idleSince: function () { return idleSince; },
@@ -700,7 +984,7 @@
       hours += '<div class="wxh"><span>' + (i === start ? 'Now' : hhmm(h.time[i]).replace(':00', '')) + '</span>' + wxSvg(h.weather_code[i], h.is_day[i]) + '<b>' + Math.round(h.temperature_2m[i]) + '°</b></div>';
     }
     for (var j = 0; j < d.time.length; j++) {
-      var name = j === 0 ? 'Today' : new Date(d.time[j] + 'T12:00').toLocaleDateString('en-US', {weekday: 'short'});
+      var name = j === 0 ? 'Today' : new Date(d.time[j] + 'T12:00').toLocaleDateString(window.UI_LOCALE || 'en-US', {weekday: 'short'});
       days += '<div class="wxd"><span>' + name + '</span>' + wxSvg(d.weather_code[j], 1) + '<i>' + (d.precipitation_probability_max[j] ? d.precipitation_probability_max[j] + '%' : '') +
         '</i><b>' + Math.round(d.temperature_2m_max[j]) + '°</b><em>' + Math.round(d.temperature_2m_min[j]) + '°</em></div>';
     }
@@ -731,10 +1015,6 @@
     hide: function () { wxPanel.hidden = wxDim.hidden = true; }
   };
 
-  views.appmenu = {
-    nav: function () { return [[].slice.call(menu.querySelectorAll('.chip'))]; },
-    show: function () { menu.hidden = false; }, hide: function () { menu.hidden = true; }
-  };
   window.dispatchEvent(new Event('tvready'));
 
   // Relaunch (Home button, or opening TV Home again): appinfo's handlesRelaunch keeps the page alive
@@ -763,29 +1043,43 @@
   var tries = 0;
   function loadHome() { return loadApps().then(function () {
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
-    return Promise.all([
-      safe(trending()),
-      safe(jwPicks()),
-      safe(tmdb('watch/providers/tv', '&watch_region=' + C.REGION).then(function (r) {
-        return Promise.all(SERVICES.map(function (s) { return safe(serviceRow(s, r.results)); }));
-      })),
-      S.youtube ? safe(youtube()) : null
-    ]).then(function (r) {
-      var picks = mergePicks(r[1] || [], r[0] || []); // JustWatch first, then TMDB
-      if (!picks.length && !(r[2] || []).filter(Boolean).length) { // nothing yet (early boot, network not up): retry
-        if (!C.TMDB_KEY) { if (!cached) setText('bootmsg', 'TMDB key missing: add it to keys.js'); return; } // no key: retrying cannot help
+    return safe(tmdb('watch/providers/tv', '&watch_region=' + C.REGION)).then(function (pr) {
+      var providers = pr ? pr.results : [];
+      var rowsFor = function (extra, titleOf) { return Promise.all(SERVICES.map(function (sv) { return safe(serviceRow(sv, providers, extra, titleOf && titleOf(sv))); })); };
+      return Promise.all([
+        providers.length ? safe(forYou(providers)) : null,
+        providers.length ? safe(topRated(providers)) : null,
+        rowsFor(),
+        S.newRow ? rowsFor(recentWindow(), function (sv) { return 'New on ' + sv.name; }) : null,
+        S.youtube ? safe(youtube()) : null
+      ]);
+    }).then(function (r) {
+      var mine = r[0] || [], rated = r[1] || [], popular = arrangeServiceRows(r[2] || []), fresh = r[3] ? arrangeServiceRows(r[3], 'New on your services') : [];
+      // "Picked for you": your own suggestions first, completed by the best-rated titles on your services when there are few
+      var taken = {}, picks = [];
+      mine.concat(rated).forEach(function (it) { var k = keyOf(it); if (!taken[k]) { taken[k] = 1; picks.push(it); } });
+      // "New on your services" does not repeat what is picked for you; "Popular on your services" shows what is popular, wherever else it appears
+      fresh = fresh.map(function (row) { return {title: row.title, svc: row.svc, items: row.items.filter(function (it) { return !taken[keyOf(it)]; })}; })
+        .filter(function (row) { return row.items.length >= MIN_ROW_ITEMS; });
+      if (!picks.length && !popular.length) { // nothing yet (early boot, network not up): retry
+        if (!C.TMDB_KEY) { if (!cached) setText('bootmsg', 'Clé TMDB manquante : ajoutez-la dans keys.js'); return; } // no key: retrying cannot help
         if (++tries < 40) { if (!cached) setText('bootmsg', 'Waiting for the internet…'); setTimeout(loadHome, 5000); }
         return;
       }
-      r.splice(1, 1); // keep the indexes below as they were
       heroItems = picks.slice(0, 6);
-      base = [{title: 'Top picks for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
-        .concat((r[1] || []).filter(Boolean), r[2] ? [r[2]] : []);
+      // services that keep their own row (Crunchyroll...) go last, new then popular; the shared rows stay grouped above them
+      var own = function (row) { return row.svc && row.svc.merge === false; };
+      base = [{title: 'Picked for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
+        .concat(fresh.filter(function (x) { return !own(x); }), popular.filter(function (x) { return !own(x); }), r[4] ? [r[4]] : [],
+          fresh.filter(own), popular.filter(own));
       store('homeCache', {hero: heroItems, base: base});
-      var fresh = !cached; // keep the user's place if they already started moving around the cached screen
+      var first = !cached; // keep the user's place if they already started moving around the cached screen
       buildRows(); showHero(); booted();
-      if (fresh) { pos.r = 1; focus(); }
+      base.slice(0, 5).forEach(function (row) { (row.items || []).slice(0, 6).forEach(function (it) { bakeAhead(it.blur); }); }); // first screens ready
+      if (first) { pos.r = 1; focus(); }
     });
   }); }
   loadHome();
+  // Back from the settings reloaded the page (a setting changed): put the quick settings back where the user left them.
+  try { if (sessionStorage.getItem('reopenQuick')) { sessionStorage.removeItem('reopenQuick'); openQuick(); } } catch (e) { /* storage unavailable */ }
 })();

@@ -92,7 +92,7 @@
     show: show,
     hide: hide,
     onFocus: function (e, pos) {
-      if (e.parentNode.classList.contains('strip')) e.parentNode.style.transform = 'translateX(' + -Math.max(0, e.offsetLeft - (pos.c ? 40 : 0)) + 'px)';
+      if (e.parentNode.classList.contains('strip')) e.parentNode.style.transform = 'translateX(' + -TV.stripShift(e) + 'px)';
     },
     back: function () {
       var o = stack.length === 1 && origin;

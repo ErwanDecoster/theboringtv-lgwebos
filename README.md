@@ -1,5 +1,18 @@
 # TheBoringTV for LG webOS
 
+> **About this branch (`french-edition`)**
+> A personal fork branch, not an official release and not maintained as a product. It is based on the upstream project and
+> adds things I wanted for my own TV. Nothing here is a request to change upstream; anything useful can be turned into a PR
+> if the maintainer wants it.
+>
+> - French interface (a small translation layer in `features/i18n.js`), France as the default region.
+> - More streaming services and apps in `config.js` (Disney+, Canal+, Crunchyroll, French TV apps...).
+> - Three recommendation rows: picked for you, new on your services, popular on your services.
+> - Settings to hide the Live tab and the profile button; a keyboard layout that looks like a real keyboard.
+> - Optional extras that need extra setup, not enabled without it: a washing-machine pill fed by Home Assistant
+>   (`features/washer.js`, keys in `keys.js`) and voice dictation in the search (needs a speech server and the TV's microphone).
+> - Brand icons are not included; tiles fall back to the TV's own icons or the app name.
+
 A Google TV-style home screen for LG webOS TVs. It's a plain HTML/CSS/JS web app with no build step.
 
 Built and tested on an LG 55UR8040 (webOS 25, SDK 10.3, Chromium 120) at 1920x1080. Works with the arrow keys,

@@ -7,7 +7,7 @@ svg { width: 32px; height: 32px; display: block; }
 /* full-bleed backdrop, crossfaded */
 #bg, #shade { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 #bg img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0;
-  transition: opacity .9s ease; }
+  transition: opacity .4s linear; will-change: opacity; }
 #bg img.on { opacity: 1; }
 #shade { background:
   linear-gradient(90deg, rgba(14,16,20,.95) 0%, rgba(14,16,20,.7) 32%, rgba(14,16,20,0) 62%),
@@ -25,9 +25,19 @@ svg { width: 32px; height: 32px; display: block; }
 .ico { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #e8eaed; }
 #weather { margin-left: auto; margin-right: 26px; display: flex; align-items: center; font-size: 28px; font-weight: 500; color: #e8eaed; }
 #weather svg { width: 34px; height: 34px; margin-right: 10px; }
-#weather[hidden] { display: none; }
+#weather[hidden], #washer[hidden] { display: none; }
+/* washing machine: the same glass as the weather and the clock, with the cycle's progress as a thin line along the bottom */
+#washer { position: relative; margin-left: auto; margin-right: 16px; display: flex; align-items: center; font-size: 28px; font-weight: 500; color: #e8eaed;
+  background: rgba(32,34,38,.74); border-radius: 30px; padding: 8px 20px; text-shadow: 0 1px 6px rgba(0,0,0,.55); overflow: hidden; }
+#washer svg { width: 34px; height: 34px; margin-right: 10px; flex: none; }
+#washer small { font-size: 18px; font-weight: 400; color: #9aa0a6; margin-left: 10px; }
+#washer i { position: absolute; left: 0; bottom: 0; height: 3px; background: #8ab4f8; border-radius: 0 2px 2px 0; }
+#washer:not([hidden]) + #weather { margin-left: 0; }
 #weather[hidden] + #clock { margin-left: auto; }
+#washer:not([hidden]) + #weather[hidden] + #clock { margin-left: 0; }
 #clock { font-size: 28px; font-weight: 500; color: #e8eaed; }
+/* the clock and the weather sit over whatever picture is behind: give them the same dark glass as the navigation pill */
+#clock, #weather { background: rgba(32,34,38,.74); border-radius: 30px; padding: 8px 20px; text-shadow: 0 1px 6px rgba(0,0,0,.55); }
 .scrolled #top { opacity: 0; transform: translateY(-20px); }
 
 /* screens */
@@ -42,7 +52,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 #heroSub { font-size: 24px; color: #dadce0; line-height: 1.4; max-height: 68px; overflow: hidden; width: 860px; }
 #heroBtn { display: inline-block; margin-top: 26px; padding: 14px 34px; border-radius: 30px; font-size: 24px; font-weight: 500;
   background: rgba(232,234,237,.16); color: #e8eaed; transition: background .15s, color .15s, transform .15s; }
-#dots { position: absolute; left: 1700px; top: 560px; white-space: nowrap; }
+#dots { position: absolute; left: 1776px; top: 560px; white-space: nowrap; transform: translateX(-100%); } /* right edge on the 72px margin of the rows */
 #dots i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.35);
   margin-left: 10px; transition: width .3s, background .3s; }
 #dots i.on { width: 28px; background: #fff; }
@@ -56,7 +66,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 
 .card { display: inline-block; vertical-align: top; position: relative; width: 352px; margin-right: 26px; }
 .card .pic { position: relative; height: 198px; border-radius: 14px; overflow: hidden; background: #26292f;
-  transition: transform .2s ease, box-shadow .2s ease; }
+  transition: transform .2s ease; }
 .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .card .ttl { position: absolute; left: 16px; right: 16px; bottom: 12px; font-size: 22px; font-weight: 500;
   white-space: normal; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
@@ -66,8 +76,10 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 
 .app { display: inline-block; vertical-align: top; width: 140px; margin-right: 34px; text-align: center; }
 .app .disc { width: 140px; height: 140px; border-radius: 50%; overflow: hidden; display: flex; align-items: center;
-  justify-content: center; font-size: 30px; font-weight: 600; color: #fff; transition: transform .2s ease, box-shadow .2s ease; }
+  justify-content: center; font-size: 30px; font-weight: 600; color: #fff; transition: transform .2s ease; }
 .app .disc img { width: 100%; height: 100%; object-fit: cover; }
+/* Settings → App icon shape: rounded squares instead of circles */
+.shape-rounded .app .disc { border-radius: 30px; }
 .app .cap { margin-top: 16px; font-size: 20px; color: #e8eaed; opacity: 0; transition: opacity .2s; white-space: nowrap; }
 
 /* focus */
@@ -113,6 +125,8 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 #qdate { font-size: 21px; color: #bdc1c6; margin-bottom: 4px; }
 #qtime { font-size: 40px; font-weight: 500; }
 .qbtn { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 12px; }
+.qbtn.qlabeled { width: auto; padding: 0 22px 0 16px; border-radius: 28px; }
+.qbtn .qbl2 { margin-left: 10px; font-size: 22px; font-weight: 500; white-space: nowrap; }
 .qav { width: 56px; height: 56px; margin: 0; font-size: 24px; }
 .tile { flex: 1; display: flex; align-items: center; height: 86px; padding: 0 22px; margin-right: 14px; border-radius: 22px;
   background: #303134; color: #e8eaed; transition: background .15s, color .15s, transform .15s; overflow: hidden; }
@@ -141,9 +155,11 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 #sclose.focus { background: #fff; color: #202124; transform: scale(1.08); }
 
 /* scrolled: small blurred copy of the art (cheap: 300px source, only redrawn when it changes) */
-#bgBlur { position: fixed; top: -60px; left: -60px; width: calc(100% + 120px); height: calc(100% + 120px); object-fit: cover;
-  filter: blur(28px) saturate(1.4) brightness(.7); opacity: 0; transition: opacity .35s; z-index: 0; }
-.scrolled #bgBlur { opacity: 1; }
+#bgBlur, #bgBlur2 { position: fixed; top: -60px; left: -60px; width: calc(100% + 120px); height: calc(100% + 120px);
+  /* a 128x72 canvas, already blurred (see bake in app.js), stretched by the browser: a fade is only an opacity change */
+  opacity: 0; transition: opacity .4s linear; will-change: opacity; z-index: 0; }
+/* two layers: the new art fades in over the old one instead of replacing it (see setBlur in app.js) */
+.scrolled #bgBlur.on, .scrolled #bgBlur2.on { opacity: 1; }
 .scrolled #shade { background: linear-gradient(180deg, rgba(14,16,20,.35) 0%, rgba(14,16,20,.55) 100%); }
 
 /* performance: own GPU layers for things that move, no blurred shadows on focus */
@@ -194,13 +210,15 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
 .qinputs { flex-wrap: wrap; margin-top: 4px; }
 .qinputs .chip { margin: 0 10px 10px 0; }
 
-/* app tile menu + move mode */
-#appmenu { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 9; background: #202124; border-radius: 28px;
-  padding: 26px 30px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.6); text-align: center; white-space: nowrap; }
-#appmenu h4 { font-size: 24px; font-weight: 500; margin-bottom: 18px; }
+/* apps edit mode */
+#editbar { margin: -8px 0 30px; }
+#grid .gh { clear: both; width: 100%; flex: 0 0 100%; font-size: 24px; font-weight: 500; color: #e8eaed; margin: 8px 0 26px; }
+#grid .gh.dim { color: #9aa0a6; font-size: 22px; font-weight: 400; }
 .app.moving .disc { box-shadow: 0 0 0 5px #8ab4f8, 0 0 0 10px rgba(138,180,248,.35); }
 .edit-tile .disc { background: #3c4043; color: #e8eaed; }
 .editing .app:not(.edit-tile) .disc { box-shadow: 0 0 0 3px rgba(232,234,237,.55); outline: 2px dashed rgba(232,234,237,.7); outline-offset: 6px; }
 .editing .app.focus:not(.edit-tile) .disc { box-shadow: 0 0 0 5px #fff; }
 
 
+
+.off { display: none !important; }
