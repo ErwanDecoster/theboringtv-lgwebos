@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Shows the washing machine pill without Home Assistant, to check its look in both themes: washer-demo.html?theme=tvos&phase=drum -->
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000}iframe{width:1920px;height:1080px;border:0;display:block}</style></head>
+<body><pre id="o" style="position:fixed;right:0;bottom:0;color:#0f0;font:12px monospace;margin:0"></pre><iframe id="tv"></iframe>
+<script>
+  var th = (/theme=(\w+)/.exec(location.search) || [])[1] || 'tvos', tv = document.getElementById('tv');
+  tv.src = '../../index.html?theme=' + th;
+  tv.onload = function () { setTimeout(function () {
+    var d = tv.contentDocument, pill = d.getElementById('washer');
+    pill.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="3"/><circle cx="12" cy="13.5" r="4.6"/></svg>1 h 12<small>' + ((/phase=(\w+)/.exec(location.search) || [])[1] === 'long' ? 'Refroidissement' : 'Lavage') + '</small><i style="width:40%"></i>';
+    pill.hidden = false;
+    var r = pill.getBoundingClientRect(); document.getElementById('o').textContent = 'pill ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' display=' + getComputedStyle(pill).display;
+  }, 8000); };
+</script></body></html>

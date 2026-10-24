@@ -718,31 +718,36 @@
   // running waits for it to end and only the latest request is then shown, so a layer is never reused while still visible (that popped in
   // instantly) and a fast run of key presses costs one fade, not one per card.
   var FADE_MS = 400;
+  // A change of picture is one cross-fade. This used to show the small picture first and then swap the full-size one into the layer already on
+  // screen (`img.src = ...`): a pop from blurry to sharp on every card hovered, which looked like a blink as soon as the network was slow.
   function makeFader(a, b, load) {
-    var front = b, shown, wanted, wantedLow, busy = false;
-    function finish(src, back, cur) {
+    var front = b, shown, sharp = true, wanted, wantedLow, busy = false;   // sharp: what is on screen is the full-size picture
+    function finish(src, back, cur, isSharp) {
       setTimeout(function () {
         cur.style.transition = 'none'; cur.className = ''; cur.style.zIndex = 0;
-        busy = false; front = back; shown = src; go();
+        busy = false; front = back; shown = src; sharp = isSharp; go();
       }, FADE_MS + 40);
     }
     function go() {
-      if (busy || wanted === shown) return;
-      var src = wanted, first = wantedLow || wanted, back = front === a ? b : a, cur = front;
+      if (busy || (wanted === shown && sharp)) return;
+      var src = wanted, upgrade = wanted === shown;                        // only the small picture is up: fade to the full-size one
+      // The small picture is only for the very first background (nothing to keep on screen yet): after that the previous picture stays up until
+      // the full-size one is ready, so a change is one clean fade and never blurry-then-sharp.
+      var first = !upgrade && wantedLow && shown === undefined ? wantedLow : wanted, back = front === a ? b : a, cur = front;
       busy = true;
       back.style.transition = 'none'; back.className = ''; back.style.zIndex = 1; cur.style.zIndex = 0;
-      var abandon = function () { busy = false; if (wanted !== shown) { shown = src; go(); } };
+      var skip = function () { busy = false; go(); };                      // moved on while it loaded: the latest request is shown instead
+      var giveUp = function () { busy = false; shown = src; sharp = true; go(); };   // could not be loaded: do not try again and again
       var reveal = function () {
-        if (wanted !== src) return abandon();       // moved on while loading: skip this one
+        if (wanted !== src) return skip();
         // Paint the new layer once, invisibly (opacity .01), before fading it in, so the first frame of the fade is not the costly one.
         back.style.transition = 'none'; back.style.opacity = '.01'; back.className = 'on';
         requestAnimationFrame(function () { requestAnimationFrame(function () {
           void back.offsetWidth; back.style.transition = ''; back.style.opacity = '';
-          finish(src, back, cur);
+          finish(src, back, cur, first === src);
         }); });
-        if (first !== src && load === loadImg) { var big = new Image(); big.onload = function () { if (shown === src || (busy && wanted === src)) (big.decode ? big.decode() : Promise.resolve()).then(function () { back.src = src; }, function () {}); }; big.src = src; }
       };
-      load(back, first).then(reveal, abandon);
+      load(back, first).then(reveal, giveUp);
     }
     return {show: function (src, low) { wanted = src; wantedLow = low; go(); }};
   }
@@ -1152,6 +1157,7 @@
   // as soon as there is something to show, without waiting for the window "load" (which waits for the network images too).
   function booted() {
     var b = $('boot'); if (!b || b.classList.contains('gone')) return;
+    if (/[?&]hold=1/.test(location.search)) return;   // for looking at the loading screen in a preview
     mark('boot-hidden');
     b.classList.add('gone'); setTimeout(function () { b.remove(); }, 700);
     setTimeout(reportPerf, 4000);

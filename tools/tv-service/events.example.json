@@ -1,0 +1,5 @@
+{
+  "webhook": "http://homeassistant.local:8123/api/webhook/CHANGE-ME-a-long-random-id",
+  "name": "living_room",
+  "events": ["off_requested", "off", "on_requested", "on"]
+}

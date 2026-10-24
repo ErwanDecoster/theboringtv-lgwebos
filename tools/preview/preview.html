@@ -23,9 +23,9 @@
   addEventListener('resize', fit); fit();
   function show(theme) {
     document.querySelectorAll('#bar button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === theme); });
-    tv.src = '../../index.html?theme=' + theme;
+    tv.src = '../../index.html?theme=' + theme + (/[?&]hold=1/.test(location.search) ? '&hold=1' : '');   // hold=1 keeps the loading screen up
   }
-  document.querySelectorAll('#bar button').forEach(function (b) { b.onclick = function () { history.replaceState(null, '', '?theme=' + b.dataset.t); show(b.dataset.t); }; });
+  document.querySelectorAll('#bar button').forEach(function (b) { b.onclick = function () { history.replaceState(null, '', '?theme=' + b.dataset.t + (/[?&]hold=1/.test(location.search) ? '&hold=1' : '')); show(b.dataset.t); }; });
   tv.onload = function () { try { tv.contentWindow.focus(); } catch (e) { /* ignore */ } };
   document.addEventListener('click', function (e) { if (e.target.tagName !== 'BUTTON') tv.contentWindow.focus(); });
   show((/[?&]theme=(\w+)/.exec(location.search) || [])[1] || 'tvos');

@@ -25,7 +25,9 @@ html:has(body.theme-tvos) { background: #000; }
 .theme-tvos .avatar { order: 5; margin: 0 0 0 22px; width: 56px; height: 56px; font-size: 24px; background: rgba(255,255,255,.9); color: #000; }
 .theme-tvos #clock { order: 0; margin: 0 !important; background: none; padding: 0; font-size: 34px; font-weight: 600; letter-spacing: -.02em; text-shadow: 0 1px 8px rgba(0,0,0,.5); }
 .theme-tvos #weather { order: 1; margin: 0 0 0 30px !important; background: none; padding: 6px 16px; font-size: 26px; font-weight: 500; color: var(--t2); }
-.theme-tvos #washer { order: 2; margin: 0 0 0 20px !important; background: var(--glass2); font-size: 24px; color: var(--t1); }
+/* the washing machine sits on the right (before the buttons): on the left it ran into the centred tabs when the phase name is long */
+.theme-tvos #washer { order: 3; margin: 0 0 0 auto !important; background: var(--glass2); font-size: 24px; color: var(--t1); }
+.theme-tvos #top:has(#washer:not([hidden])) .pill.icons { margin-left: 20px; }
 .theme-tvos #washer i { background: #fff; }
 .theme-tvos .tab { padding: 12px 30px; margin: 0 4px; font-size: 29px; font-weight: 600; color: rgba(255,255,255,.78); border-radius: 36px; text-shadow: 0 1px 10px rgba(0,0,0,.6); }
 .theme-tvos .tab.cur { color: var(--t1); background: rgba(255,255,255,.16); }

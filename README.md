@@ -13,7 +13,7 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 
 | Rows with a blurred background | Details page with where to watch |
 |:---:|:---:|
-| ![Popular on Netflix, JioHotstar and Prime Video rows](docs/screenshots/02-rows.jpg) | ![Details page with Watch, Trailer and Watchlist buttons](docs/screenshots/03-details.jpg) |
+| ![Popular on … rows for the streaming services](docs/screenshots/02-rows.jpg) | ![Details page with Watch, Trailer and Watchlist buttons](docs/screenshots/03-details.jpg) |
 | **Search across services** | **Quick settings** |
 | ![Search with on-screen keyboard and where-to-watch labels](docs/screenshots/04-search.jpg) | ![Quick settings side panel](docs/screenshots/05-quick-settings.jpg) |
 | **Settings** | **Profiles** |
@@ -28,6 +28,14 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 | ![Apple TV theme home](docs/screenshots/09-apple-home.jpg) | ![Apple TV theme quick settings](docs/screenshots/10-apple-quick-settings.jpg) |
 | **Details** | **Profiles** |
 | ![Apple TV theme details](docs/screenshots/11-apple-details.jpg) | ![Apple TV theme profile picker](docs/screenshots/12-apple-profiles.jpg) |
+
+## Words used in this README
+- **Rooted TV / Homebrew Channel:** a TV where you can log in as administrator over SSH. The [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) is the community app that gives that access and runs your scripts at boot. Only the "rooted" parts below need it; the app itself runs on any LG webOS TV in Developer Mode.
+- **sam:** webOS's app manager (the system part that starts and stops apps). Restarting it is what breaks the soundbar link here.
+- **eARC / ARC:** the HDMI connection that sends the TV's sound to a soundbar.
+- **Quick Start+:** an LG setting that keeps the TV half-awake in standby so it wakes in a few seconds.
+- **Helper service (`tools/tv-service`):** a small program that runs on the TV itself, outside the app, for things a web page is not allowed to do.
+- **Luna / `luna-send`:** webOS's internal request system and its command-line tool.
 
 ## What this fork adds to upstream
 - **A way to be the home screen that does not break eARC/ARC soundbars.** Upstream's recommended method restarts the TV's
@@ -48,17 +56,18 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 - **Safer preview:** the dev server is bound to `127.0.0.1` (see Setup), `keys.js` stays git-ignored.
 
 ## Features
-- **Hero and rows:** full-screen featured titles, "Top picks", "Popular on Netflix / JioHotstar / Prime Video" and
+- **Hero and rows:** full-screen featured titles, "Picked for you", one "Popular on …" row per streaming service you chose in Settings
+  (Netflix, Prime Video, Disney+, Apple TV+, Canal+ and Crunchyroll are known by default; add others in `config.js`) and
   "Trending on YouTube", using [TMDB](https://www.themoviedb.org/) and the YouTube Data API.
 - **Where to watch:** pressing OK on a title opens a details page with "Watch on …" buttons for the services that
   stream it in your country, a trailer, cast and "More like this".
-- **Watchlist, Continue watching:** both saved on the TV. Netflix and Hotstar don't share watch history, so
+- **Watchlist, Continue watching:** both saved on the TV. Netflix and the other apps don't share their watch history, so
   Continue watching lists the titles you opened from this home screen.
 - **Search across services:** an on-screen keyboard; each result shows where it's streaming.
 - **Your apps:** checks a list of known apps (webOS won't list installed apps to non-system apps) and opens them; on a rooted TV the helper service lists every installed app.
 - **Settings:** country, recommendation languages (pick several), which services get rows, clock, theme, and more.
 - **Quick settings panel:** Wi-Fi, audio output, Bluetooth, volume, screensaver, inputs, picture and sound mode, brightness, screen off.
-- **Profiles:** each has its own settings, watchlist and history, plus a kids profile.
+- **Profiles:** each has its own settings, watchlist and history, plus a kids profile (family-friendly titles, some apps hidden).
 - **Ambient mode:** a slideshow of artwork with the clock when the TV is idle.
 
 ## Setup
@@ -78,6 +87,7 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 ## Install on the TV
 Turn on LG's Developer Mode (or use a rooted TV), install the [webOS CLI](https://www.npmjs.com/package/@webos-tools/cli),
 and add your TV with `ares-setup-device`. Then:
+`-e` leaves a folder out of the package (dev tools, screenshots, upstream's optional `service/`, git data):
 ```bash
 ares-package . -e tools -e docs -e service -e .git -o /tmp --no-minify
 ```
@@ -189,8 +199,7 @@ On the TV's busybox, `ls --time-style` and `date -d` don't exist; `timeout` does
 button of the remote did nothing until we took them off the list. If you run a debloat script, check its list before blaming the app. The TV's far-field microphone is a unix socket (16 kHz, 16 bit,
 mono, raw); `tools/tv-service` streams it over `GET /mic`.
 
-**8. Crunchyroll deep links:** the official app ignored every parameter format we tried (13), so "Watch on Crunchyroll" opens the app's home.
-We tried an unofficial client and removed it again; nothing from it is left in the code.
+**8. Crunchyroll deep links:** the official app ignored every parameter format we tried (13), so "Watch on Crunchyroll" simply opens the app.
 
 **9. Slow start was not script parsing.** It was the loading screen waiting for the network, then the cost of the first frame and of the translator. See Performance.
 
@@ -222,7 +231,8 @@ With the helper service running (rooted TV), the page gets what a normal app can
 which the page reaches over the TV's loopback (`127.0.0.1:45621`, host and origin checked):
 - **Your apps** shows every installed app with its real icon, not the list in `config.js`; **HDMI inputs** carry the name of what is plugged in (from `eim/getAllInputStatus`).
 - **Quick settings** gets picture mode, sound mode, brightness, a row of inputs and **Screen off**, which keeps audio playing; any remote key turns the screen back on.
-- Upstream's `service/service.js` (port 45620) still ships for the deep-link id lookups (Prime Video, JioHotstar); without it those titles open the app's home.
+- Upstream's `service/service.js` (port 45620) is a second, separate helper. It does the deep-link id lookups (Prime Video, JioHotstar; without it those titles open the app's home)
+  and `tools/tv` below talks to it for picture, sound and screen commands. Packaging and installing it is described in upstream's README.
 
 `tools/tv` controls the TV from your computer over SSH:
 ```bash
@@ -236,6 +246,40 @@ For Home Assistant, its built-in **LG webOS Smart TV** integration already contr
 over the TV's own network API, with no root needed. Use `tools/tv` (from a shell command) for the extras.
 The optional washing machine pill reads three Home Assistant entities over its WebSocket (`HA_WASHER` in `keys.js`); the token never leaves `keys.js`.
 
+## Home Assistant: know when the TV goes off (power events)
+Detecting "TV off" by pinging it is unreliable: with Quick Start+ the TV keeps its network up in standby. The power service (`tvpowerd`) knows exactly
+what happens, so `tools/tv-service` listens to it and pushes a small JSON event to a Home Assistant **webhook** (or any URL) the moment it changes:
+
+| `event` | When (recorded on an LG C4) |
+|---|---|
+| `off_requested` | the remote's power key was pressed; the screen is still on (`reason: remoteKey`) |
+| `off` | standby reached (about 0.5 s later when `lgLogoDisplay` is off, see the field notes; 5 s otherwise) |
+| `on_requested` | a key woke the TV, the screen is not on yet |
+| `on` | the TV is up again (a screensaver counts as on) |
+
+The body is `{"event","state":"on|off","power_state","processing","reason","name","at"}`. Delivery is retried 3 times (a waking TV may not have its network yet).
+Nothing is sent without a config file, and the webhook URL (which is the secret) stays on the TV:
+```bash
+cp tools/tv-service/events.example.json events.json     # edit: your webhook URL, a name, the events you want
+scp events.json root@<tv-ip>:/media/developer/tv-service/ && TV_HOST=root@<tv-ip> tools/tv-service/install.sh
+```
+In Home Assistant, create the automation with a webhook trigger (webhooks are local-only by default; keep it that way):
+```yaml
+automation:
+  - alias: "TV off: lights back on"
+    trigger:
+      - platform: webhook
+        webhook_id: CHANGE-ME-a-long-random-id
+        allowed_methods: [POST]
+        local_only: true
+    condition: "{{ trigger.json.event == 'off' }}"
+    action:
+      - service: scene.turn_on
+        target: {entity_id: scene.living_room_evening}
+```
+`off_requested` is the earliest signal (use it for lights that should react as the screen goes dark); `off` is the safe "it is really off" one.
+Power loss or an unplugged TV sends nothing: keep HA's own availability check as the fallback.
+
 ## Deep links
 "Watch on …" opens the exact title, using the link format each app accepts (Prime's and JioHotstar's were captured
 from LG's own voice search):
@@ -244,7 +288,7 @@ from LG's own voice search):
 |---|---|---|
 | Netflix | Wikidata (P1874) | `m=https://www.netflix.com/title/<id>&source_type=4` |
 | Prime Video | Prime's search page, via the service (rooted TV) | the Amazon title id, `amzn1.dv.gti.…` |
-| JioHotstar | JustWatch, matched by TMDB id, then Wikidata (P11049) | `https://livingroom.hotstar.com/<id>` |
+| JioHotstar (not in the default service list: add it to `config.js`) | JustWatch, matched by TMDB id, then Wikidata (P11049) | `https://livingroom.hotstar.com/<id>` |
 | YouTube | the video id | `https://www.youtube.com/tv?v=<id>` |
 
 Ids are cached on the TV. If a lookup finds nothing or takes too long, the app just opens normally.
@@ -255,6 +299,7 @@ Ids are cached on the TV. If a lookup finds nothing or takes too long, the app j
 - With Option 1, LG's home still flashes for a moment on Back and on wake, and the boot behaviour is a trade-off (boot profiles).
 - webOS still shows a short splash (TV Home's own dark one) when it has to start TV Home from scratch.
 - Deep links need each service's own title id, so a title opens the app's home when no id is found (Prime Video and JioHotstar lookups also need upstream's `service/` running).
+- The Prime Video lookup reads Prime's public search page, so it can break whenever Amazon changes that page.
 - The app can't read LG Channels' channel list or Netflix/Hotstar watch history.
 - Tested on one TV model and firmware. `defaultApps`, `lgLogoDisplay` and the init.d timing may differ on other webOS versions: check the ARC state and the power-off phases as above.
 

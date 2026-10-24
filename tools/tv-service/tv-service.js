@@ -366,6 +366,83 @@ function bootLaunch (tries, launched) {
 	});
 }
 
+// ---------- power events ----------
+
+// Tells Home Assistant (or any URL) when the TV goes off or comes on. Polling the TV is unreliable: with Quick Start+ it keeps its network up in
+// standby, so integrations that ping it think it is still on. The power service says exactly what happens, and in this order (seen on an LG C4):
+//   {state:'Active', processing:'Request Power Off', onOff:'off', reason:'remoteKey'}   the remote's key was pressed, the screen is still on
+//   {state:'Active Standby'}                                                              standby reached (~0.5 s later with lgLogoDisplay off)
+//   {state:'Active Standby', processing:'Prepare Power On', onOff:'on', reason:'remoteKey'}
+//   {state:'Active'}                                                                      back on
+// Configured by /media/developer/tv-service/events.json (see events.example.json); without that file nothing is sent.
+// <power-handler>
+function makePowerHandler(emit) {
+	var tv = null, lastEvent = '', lastAt = 0;
+	function fire(event, msg) {
+		var now = Date.now();
+		if (event === lastEvent && now - lastAt < 2000) return;       // the power service repeats itself
+		lastEvent = event; lastAt = now;
+		emit({event: event, state: tv, power_state: msg.state || '', processing: msg.processing || '', reason: msg.reason || ''});
+	}
+	return function (msg) {
+		if (!msg || typeof msg.state !== 'string') return;
+		var now = (msg.state === 'Active' || msg.state === 'ScreenSaver') ? 'on' : 'off';
+		var first = tv === null;
+		if (msg.processing === 'Request Power Off' && msg.onOff === 'off') fire('off_requested', msg);
+		else if (msg.processing === 'Prepare Power On' && msg.onOff === 'on') fire('on_requested', msg);
+		if (now !== tv) {
+			tv = now;
+			if (!first) fire(now, msg);                                // the first message only says where we are, it is not a change
+		}
+	};
+}
+// </power-handler>
+
+function postJson(urlString, body, tries) {
+	var u = require('url').parse(urlString), data = JSON.stringify(body);
+	var req = (u.protocol === 'https:' ? require('https') : http).request({
+		hostname: u.hostname, port: u.port, path: u.path, method: 'POST', timeout: 4000,
+		headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data)}
+	}, function (res) {
+		res.resume();
+		if (res.statusCode >= 200 && res.statusCode < 300) return log('power event ' + body.event + ' sent (' + res.statusCode + ')');
+		retry('HTTP ' + res.statusCode);
+	});
+	req.on('timeout', function () { req.destroy(new Error('timeout')); });
+	req.on('error', function (e) { retry(e.message); });
+	req.end(data);
+	function retry(why) {
+		if (tries >= 3) return log('power event ' + body.event + ' not delivered: ' + why);
+		setTimeout(function () { postJson(urlString, body, tries + 1); }, tries * 2500);   // a TV waking up may not have its network yet
+	}
+}
+
+function watchPower() {
+	var cfg;
+	try { cfg = JSON.parse(fs.readFileSync(__dirname + '/events.json', 'utf8')); } catch (e) { return log('power events: no events.json, nothing is sent'); }
+	if (!cfg || typeof cfg.webhook !== 'string' || !/^https?:\/\//.test(cfg.webhook)) return log('power events: events.json needs a "webhook" URL');
+	var wanted = Array.isArray(cfg.events) ? cfg.events : ['off_requested', 'off', 'on_requested', 'on'];
+	var handler = makePowerHandler(function (ev) {
+		if (wanted.indexOf(ev.event) < 0) return;
+		ev.name = cfg.name || 'tv'; ev.at = new Date().toISOString();
+		log('power event ' + ev.event + ' (' + ev.power_state + (ev.processing ? ' / ' + ev.processing : '') + ')');
+		postJson(cfg.webhook, ev, 0);
+	});
+	var buf = '';
+	var child = cp.spawn('luna-send', ['-i', POWER + 'getPowerState', '{"subscribe":true}'], {stdio: ['ignore', 'pipe', 'ignore']});
+	child.stdout.on('data', function (d) {
+		buf += d;
+		var end;
+		while ((end = buf.indexOf('\n')) !== -1) {      // one JSON message per line
+			var line = buf.slice(0, end); buf = buf.slice(end + 1);
+			try { handler(JSON.parse(line)); } catch (e) { /* not a message */ }
+		}
+		if (buf.length > 8192) buf = '';
+	});
+	child.on('exit', function () { setTimeout(watchPower, 5000); });
+	log('power events: watching, sending to ' + cfg.webhook.replace(/\/api\/webhook\/.*/, '/api/webhook/…'));
+}
+
 // ---------- HTTP ----------
 
 var ALLOWED_HOSTS = [HOST + ':' + PORT, 'localhost:' + PORT];
@@ -427,6 +504,7 @@ http.createServer(function (req, res) {
 	try { fs.writeFileSync('/tmp/launcher-service.pid', String(process.pid)); } catch (e) { /* ignore */ }
 	watchHome();
 	watchForeground();
+	watchPower();
 	bootLaunch(0, 0);
 	log('listening on ' + HOST + ':' + PORT + ' (pid ' + process.pid + ')');
 });
