@@ -78,6 +78,12 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 - **Ambient mode:** a slideshow of artwork (only pictures sharp enough, full-size by default; Settings → Picture quality keeps the lighter ones) with the clock in bold, the date and the weather when the TV is idle.
   Any key leaves it; OK (or a pointer click, without moving the pointer) opens the details page of the title on screen. The "Screensaver" tile of the quick settings starts it
   (it used to start LG's own screensaver app, which did not hand the remote back reliably).
+  **Dimming:** a black veil over the whole idle screen (pictures and texts) that gets darker the longer it stays on, to lower the light of every lit pixel (what wears an OLED): from 30 % at the start to 45 % after a
+  minute, 59 % after 5 and 72 % after 20 (Settings → Idle screen dimming: Light up to 45 %, Standard up to 72 %, Strong up to 85 %). LG's screensaver lowers the panel's luminance through an undocumented call of the picture
+  service (`pqcontroller/reduceLuminance`, an empty call is accepted, its parameters are not published and could not be observed): it is not guessed here.
+  **Burn-in care:** the clock block (time, date, weather) and the title block shift a little so the strokes of the texts do not always light the same pixels: a small zone (at most 56 px across, 36 px up), ONE random
+  offset for both blocks (the left one by (dx, dy), the right one by (-dx, dy)) so they keep the same line and the same margins, moves of 2.5 to 5 minutes (a few tenths of a pixel per second, not seen moving) each
+  followed by a rest of 2 to 5 minutes, never a cycle: each point is drawn at random, at least 24 px from the previous one, and the last one is kept for the next time. **Instead of LG's screensaver** (rooted TV): see [LG's screensaver, replaced](#lgs-screensaver-replaced-rooted-tvs).
 
 ## Setup
 1. Copy `keys.example.js` to `keys.js` and add a free TMDB API key and a YouTube Data API v3 key (the optional
@@ -267,6 +273,21 @@ For Home Assistant, its built-in **LG webOS Smart TV** integration already contr
 over the TV's own network API, with no root needed. Use `tools/tv` (from a shell command) for the extras.
 The optional washing machine pill reads three Home Assistant entities over its WebSocket (`HA_WASHER` in `keys.js`); the token never leaves `keys.js`.
 
+## LG's screensaver, replaced (rooted TVs)
+LG's screensaver (`com.webos.app.screensaver`, a Flutter app started by the power service after `screenSaverTimer` minutes without a key press; LG says it works except during full-screen video) would start over
+whatever app is in front, and TV Home's own idle screen only runs while TV Home is. The power service (`tvpowerd`) asks its clients before it starts the screensaver, so the helper service can answer:
+1. `tools/tv-service` registers with `luna://com.webos.service.tvpower/power/registerScreenSaverRequest` (`{subscribe: true, clientName: "tvhome"}`) and receives `{state: "Active", timestamp: "<text>"}`.
+2. It answers with `responseScreenSaverRequest` (`{clientName, ack, timestamp}`; **the timestamp must be sent as text**, a number is refused): `ack: false` stops LG's screensaver, `ack: true` lets it through.
+3. When TV Home asked to take over, the answer is `ack: false` and TV Home is launched with `{ambient: true, at: <time>}`; the page shows its idle screen (any key leaves it; the parameter is ignored when older than 20 s).
+   **A refusal alone is not enough.** The power service goes on to its "Screen Saver Ready" state and starts LG's app about 4 s later, unless an event cancels it (`Received turnOnScreen at Screen Saver Ready. Go to Active` is in `tvpowerd`).
+   Launching TV Home from another app is such an event; when TV Home's idle screen is already up (it starts after 5 min, LG asks at 10) nothing happens and LG's screensaver came on anyway (seen twice, then reproduced).
+   So the helper also calls `power/turnOnScreen` 0.6, 1.8 and 3 s after the refusal (the screen is already on: it only cancels the launch), and, 5.5 s after it, closes `com.webos.app.screensaver` if it came up anyway.
+   (Power events for Home Assistant: the subscription says "Screen Saver" with a space, the one-shot call "ScreenSaver": both count as the TV being on.)
+4. TV Home tells the helper whether to do so (`POST /ambient {on}`): not when Settings → Ambient mode is Off, said again at each start, each change and every 10 minutes (the helper forgets it when it restarts).
+5. Safety: if the page cannot show its idle screen (no sharp picture known yet, 12 s of trying), it calls `POST /ambient/failed`; the next request is let through for a minute and `turnOnScreenSaver` is called, so the screen never stays still and bare.
+The request/answer methods are not documented by LG (their names are in `tvpowerd`, the behaviour was seen on webOS 25 only): they may change with a firmware update, and nothing happens without the helper service.
+LG's own timer is unchanged: our idle screen starts after Settings → Ambient mode minutes while TV Home is in front, LG's request comes after `option.screenSaverTimer` minutes in front of another app.
+
 ## Pictures: sharp, or none
 The TV page is drawn at 1920x1080 (device pixel ratio 1; the TV scales it to its 4K panel), so a picture that fills the screen is sampled from the file you give it: a 1280 px backdrop is
 visibly soft there. TMDB holds backdrops from 1280 to 3840 px, and many titles (a lot of anime) only have the small ones. What the app does:
@@ -302,10 +323,14 @@ watched at least one episode) so it is never suggested again, and sends what you
 (unmarking removes them all). To mark only some episodes, do it on Trakt.
 The other way round, from Trakt:
 - **Recently finished** gets a card for each of the 12 newest titles you finished there (a movie, or a series whose aired episodes are all watched, checked with Trakt's progress).
-- **Continue watching** is built from Trakt: the series you are in the middle of (among your 15 most recently watched, with the next episode, e.g. "Next episode · S2 E5") and the movies or
-  episodes paused part-way (Trakt keeps these only when a player reported them). Titles you opened here and did not finish stay after them. Trakt's own "Up Next" list is not used: it is not open to every app,
-  so the same result is rebuilt from the progress of each series. A series you only started is kept out of the suggestions but is not "finished".
+- **Continue watching** is one list, **newest first**, from two sources. Trakt gives the series you are in the middle of (among your 15 most recently watched, with the next episode, e.g. "Next episode · S2 E5") and the movies
+  or episodes paused part-way (Trakt keeps these only when a player reported them). TV Home gives what you opened from here and did not finish. Each has a date (when Trakt last saw it, when you opened it) and the more recent
+  one counts: Crunchyroll and most apps tell Trakt nothing, so Trakt's dates can be weeks old for a series you started yesterday. A title in both keeps Trakt's card (next episode, progress). Only what is finished leaves
+  the list (a movie Trakt has watched; a series Trakt knows only counts as "started"), and it keeps the 20 newest. Trakt's own "Up Next" list is not used: it is not open to every app, so the same result is rebuilt from
+  the progress of each series.
   **Hold OK** on a card to open its details page; a short press opens the title in its streaming app.
+- **Started, not finished:** answering "Not finished" to the "Seen it?" question for a **series Trakt does not know yet** tells Trakt you started it, without marking anything watched: TV Home does not know which episode you played, so it
+  sends a pause at 3 % of the first one (`POST /scrobble/pause`, a playback progress; it then shows in Trakt's and in our "Continue watching"). A series Trakt already knows, and movies, are left alone.
 - **À voir (watchlist)** is synced both ways: adding or removing a title here is sent at once, and the changes made on Trakt come down at the next sync. The app remembers what both sides
   agreed on at the last sync, so a title removed on one side is removed on the other rather than added back.
 - Trakt pages its long lists (100 items by default since mid-2026): every page is read, so a long history is complete.

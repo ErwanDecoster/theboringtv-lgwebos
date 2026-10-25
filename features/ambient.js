@@ -2,14 +2,16 @@
 // Screensaver: after S.ambient minutes without input, a Ken-Burns slideshow of backdrops with clock + title.
 (function () {
   var TV = window.TV;
+  TV.addSetting({key: 'ambientDim', title: 'Idle screen dimming', hint: 'A veil that darkens the idle screen more and more, to spare the OLED pixels. Light, Standard or Strong sets how dark it gets',
+    opts: [['light', 'Light'], ['std', 'Standard'], ['strong', 'Strong']]}, 'std');
   TV.addSetting({key: 'ambient', title: 'Ambient mode', hint: 'Slideshow when idle',
     opts: [[0, 'Off'], [2, '2 min'], [5, '5 min'], [10, '10 min']]}, 5);
 
   var root = TV.el('div', '', '<img alt=""><img alt=""><div class="amb-clock"><b></b><div class="amb-sub"><span class="amb-date"></span><span class="amb-wx"></span></div></div>' +
-    '<div class="amb-title"><b></b><span></span></div>');
+    '<div class="amb-title"><b></b><span></span></div><div class="amb-dim"></div>');
   root.id = 'ambient'; root.hidden = true;
   document.body.appendChild(root);
-  var imgs = root.querySelectorAll('img'), clockEl = root.querySelector('.amb-clock b'), dateEl = root.querySelector('.amb-date'), wxEl = root.querySelector('.amb-wx'), cap = root.querySelector('.amb-title');
+  var dimEl = root.querySelector('.amb-dim'), clockBox = root.querySelector('.amb-clock'), titleBox = root.querySelector('.amb-title'), imgs = root.querySelectorAll('img'), clockEl = root.querySelector('.amb-clock b'), dateEl = root.querySelector('.amb-date'), wxEl = root.querySelector('.amb-wx'), cap = root.querySelector('.amb-title');
 
   var on = false, cur, shownAt = 0, last = Date.now(), list = [], idx = 0, flip = 0, slideT, tickT, pre;
 
@@ -52,22 +54,104 @@
     };
     img.src = src;
   }
+  // ---------- dimming ----------
+  // What wears an OLED is how bright its pixels are and for how long: a black veil over the whole idle screen (pictures and texts alike) lowers the light of every lit pixel,
+  // and gets darker the longer the screen stays on. (LG's screensaver lowers the panel's luminance through an undocumented call of the picture service, whose parameters are
+  // not published: they are not guessed here.) Settings → Idle screen dimming: Light / Standard / Strong set the darkest level; the share of it grows in steps.
+  var DIM_MAX = {light: .45, std: .72, strong: .85};
+  var DIM_STEPS = [[0, .42], [60e3, .62], [300e3, .82], [1200e3, 1]];   // after ms, share of the darkest level
+  var dimT = 0;
+  function dimTarget(ms) {
+    var max = DIM_MAX[TV.S.ambientDim] || DIM_MAX.std, share = DIM_STEPS[0][1];
+    DIM_STEPS.forEach(function (s) { if (ms >= s[0]) share = s[1]; });
+    return +(max * share).toFixed(2);
+  }
+  function dimNow() { dimEl.style.opacity = dimTarget(Date.now() - shownAt); }
+  TV.ambientDimTarget = dimTarget; TV.ambientDimNow = dimNow;      // (for tests)
+
+  // ---------- slow random drift ----------
+  // On an OLED nothing should stay on the same pixels for hours: the clock block (time, date, weather) and the title block shift a little, at random, so the strokes of the
+  // texts do not always light the same pixels. A few dozen pixels are enough for that, so it stays in a small zone, and the two blocks move together: ONE random offset
+  // (dx, dy) for both, the left block by (dx, dy) and the right block by (-dx, dy), so they keep the same margins from the edges and stay on the same line. The move itself is
+  // far too slow to be seen (a few tenths of a pixel per second) and followed by a long rest, never a cycle: each point is drawn at random, at least 24 px from the previous one, and the
+  // last one is kept (localStorage "ambDrift2") so the next time starts from there.
+  var ZONE = {x: [0, 56], y: [-36, 0], minStep: 24};                  // px; dx grows to the right for the left block and to the left for the right one
+  var MOVE_MS = [150000, 300000], REST_MS = [120000, 300000];            // how long a move takes, how long it rests after it
+  var pos = loadDrift(), driftT = 0;
+  function loadDrift() {
+    try { var d = JSON.parse(localStorage.getItem('ambDrift2')); if (d && isFinite(d.x) && isFinite(d.y)) return {x: Math.min(Math.max(d.x, ZONE.x[0]), ZONE.x[1]), y: Math.min(Math.max(d.y, ZONE.y[0]), ZONE.y[1])}; } catch (e) { /* none yet */ }
+    return {x: 0, y: 0};
+  }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(from) {
+    var p;
+    for (var i = 0; i < 12; i++) {
+      p = {x: Math.round(rnd(ZONE.x[0], ZONE.x[1])), y: Math.round(rnd(ZONE.y[0], ZONE.y[1]))};
+      if (Math.sqrt(Math.pow(p.x - from.x, 2) + Math.pow(p.y - from.y, 2)) >= ZONE.minStep) break;
+    }
+    return p;
+  }
+  function place(el, p, ms) { el.style.transition = ms ? 'transform ' + ms + 'ms ease-in-out' : 'none'; el.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)'; }
+  function apply(p, ms) { place(clockBox, {x: p.x, y: p.y}, ms); place(titleBox, {x: -p.x, y: p.y}, ms); }
+  function wander() {
+    pos = pick(pos);
+    var ms = Math.round(rnd(MOVE_MS[0], MOVE_MS[1]));
+    apply(pos, ms);
+    try { localStorage.setItem('ambDrift2', JSON.stringify(pos)); } catch (e) { /* storage unavailable: starts from the corners next time */ }
+    driftT = setTimeout(wander, ms + rnd(REST_MS[0], REST_MS[1]));      // then a long rest, and no fixed rhythm
+  }
+  TV.ambientWander = wander;      // (for tests)
+  TV.ambientDrift = function () { return pos; };
+  TV.ambientZone = function () { return ZONE; };
+
   function show() {
     if (on) return true;
     list = collect(); if (!list.length) return false;   // nothing sharp enough to show yet
     on = true; cur = null; shownAt = Date.now(); idx = 0;
     tick(); tickT = setInterval(tick, 10000);
     root.hidden = false; void root.offsetWidth; root.classList.add('show');
+    dimEl.style.transition = 'none'; dimEl.style.opacity = dimTarget(0);
+    clearInterval(dimT); dimT = setInterval(dimNow, 20000);                                 // each step is reached slowly (see the stylesheet), never as a jump
+    apply(pos, 0);                                                   // where they were the last time, not back at the corners
+    clearTimeout(driftT); driftT = setTimeout(wander, rnd(30000, 90000));
     slide();
     return true;
   }
   function hide() {
     if (!on) return;
-    on = false; clearTimeout(slideT); clearInterval(tickT);
+    on = false; clearTimeout(slideT); clearInterval(tickT); clearTimeout(driftT); clearInterval(dimT);
     root.classList.remove('show');
     setTimeout(function () { if (!on) { root.hidden = true; imgs[0].className = imgs[1].className = ''; } }, 600);
   }
   TV.ambientNow = show;
+
+  // ---------- instead of LG's screensaver ----------
+  // In front of another app (or with TV Home behind it), LG's screensaver is what would start. On a rooted TV the helper service refuses that request and launches TV Home with
+  // {ambient: true}: this page then shows its idle screen. And the helper is told, now and after each change of Settings → Ambient mode, whether it should do that (not when Off).
+  function tellHelper(path, body) {
+    if (!TV.onTV) return;
+    try { fetch('http://127.0.0.1:45621' + path, {method: 'POST', body: JSON.stringify(body || {})}).catch(function () { /* no helper: LG's screensaver stays */ }); } catch (e) { /* none */ }
+  }
+  function syncHelper() { tellHelper('/ambient', {on: +TV.S.ambient > 0}); }
+  window.addEventListener('tvsettings', syncHelper);
+  setTimeout(syncHelper, 3000); setInterval(syncHelper, 2 * 60e3);           // again from time to time: the helper forgets it when it restarts
+  function launchedForAmbient() {
+    var raw; try { raw = window.PalmSystem && window.PalmSystem.launchParams; } catch (e) { return false; }
+    if (!raw) return false;
+    var p; try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return false; }
+    return !!(p && p.ambient && Date.now() - (p.at || 0) < 20000);           // recent: a stale parameter must not start it on every later relaunch
+  }
+  function startForLaunch() {
+    if (!launchedForAmbient()) return;
+    var tries = 0;
+    (function again() {
+      if (show()) return;                                                      // up
+      if (++tries < 15) setTimeout(again, 800);                                // the pictures may not be known yet at a cold start
+      else tellHelper('/ambient/failed');                                      // never: LG's screensaver is let through rather than a still screen
+    })();
+  }
+  setTimeout(startForLaunch, 600);
+  document.addEventListener('webOSRelaunch', function () { setTimeout(startForLaunch, 200); });
 
   // Input tracking (capture phase on window runs before the core's document listeners).
   // OK on the remote opens the details page of the title on screen (the first 1.5 s excepted: the title that has just come up is not the one you meant). With the

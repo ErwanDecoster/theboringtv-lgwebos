@@ -182,6 +182,17 @@
     authed('POST', on ? '/sync/watchlist' : '/sync/watchlist/remove', wbody([wkey(it.tmdb.type, it.tmdb.id)])).catch(function () { /* the next sync reconciles it */ });
   });
 
+  // "Not finished" on a series Trakt does not know yet: tell it you started, without marking anything watched. TV Home does not know which episode you played, so it is
+  // noted as a pause at 3 % of the first one (a playback progress: it shows in Trakt's "Continue watching" and in our own, and nothing enters the watched history).
+  // A series Trakt already knows (something of it watched) is left alone: it is in progress there already.
+  TV.traktStarted = function (it) {
+    if (!tok || !it || !it.tmdb || it.tmdb.type !== 'tv' || TV.seen.has(it)) return;
+    authed('POST', '/scrobble/pause', {show: {ids: {tmdb: it.tmdb.id}}, episode: {season: 1, number: 1}, progress: 3}).then(function () {
+      var m = {}; m['tv:' + it.tmdb.id] = Date.now(); TV.seen.merge(m);            // known to Trakt now (started): not suggested again
+      TV.toast('Noted as started on Trakt');
+    }, function () { TV.toast('Trakt: could not note it'); });
+  };
+
   function sync(quiet) {
     return flush().then(pull).then(function (n) {
       return syncWatchlist().then(function () { return n; }, function () { return n; });   // the watchlist is a nicety: its failure does not fail the sync

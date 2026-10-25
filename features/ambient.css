@@ -15,12 +15,15 @@
 /* bottom scrim: one cheap gradient instead of text shadows */
 #ambient::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 360px; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
 #ambient .amb-clock, #ambient .amb-title { position: absolute; bottom: 64px; z-index: 1; color: #e8eaed; }
-#ambient .amb-clock { left: 88px; }
+#ambient .amb-clock { left: 88px; will-change: transform; text-shadow: 0 2px 14px rgba(0,0,0,.65); }   /* both blocks drift (ambient.js): the shadow keeps them readable away from the bottom veil */
 #ambient .amb-clock b { display: block; font-size: 120px; font-weight: 700; line-height: 1; letter-spacing: -2px; }
 #ambient .amb-sub { display: flex; align-items: center; margin-top: 12px; font-size: 30px; opacity: .9; }
 #ambient .amb-wx { display: flex; align-items: center; margin-left: 34px; font-weight: 500; }
 #ambient .amb-wx:empty { display: none; }
 #ambient .amb-wx svg { width: 36px; height: 36px; margin-right: 10px; }
-#ambient .amb-title { right: 88px; max-width: 760px; text-align: right; }
+#ambient .amb-title { right: 88px; max-width: 760px; text-align: right; will-change: transform; text-shadow: 0 2px 14px rgba(0,0,0,.65); }
 #ambient .amb-title b { display: block; font-size: 30px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #ambient .amb-title span { display: block; margin-top: 6px; font-size: 22px; opacity: .7; }
+
+/* the dimming veil (ambient.js): over everything, texts included; its opacity moves slowly */
+#ambient .amb-dim { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; opacity: 0; z-index: 3; pointer-events: none; transition: opacity 15s linear; }

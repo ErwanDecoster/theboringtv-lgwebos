@@ -19,7 +19,7 @@ var net = require('net');
 
 var HOST = '127.0.0.1';
 var PORT = 45621;
-var VERSION = 2;
+var VERSION = 3;
 var LOG = '/tmp/launcher-service.log';
 var SELF_APP = 'works.partridge.webos-launcher';
 
@@ -386,7 +386,8 @@ function makePowerHandler(emit) {
 	}
 	return function (msg) {
 		if (!msg || typeof msg.state !== 'string') return;
-		var now = (msg.state === 'Active' || msg.state === 'ScreenSaver') ? 'on' : 'off';
+		var st = msg.state.replace(/\s+/g, '');                       // the subscription says "Screen Saver", the one-shot call "ScreenSaver"
+		var now = (st === 'Active' || st === 'ScreenSaver') ? 'on' : 'off';
 		var first = tv === null;
 		if (msg.processing === 'Request Power Off' && msg.onOff === 'off') fire('off_requested', msg);
 		else if (msg.processing === 'Prepare Power On' && msg.onOff === 'on') fire('on_requested', msg);
@@ -465,7 +466,7 @@ var TRAKT_URL = process.env.TRAKT_URL || 'https://api.trakt.tv';
 function traktCall (p) {
 	return new Promise(function (ok) {
 		var path = String(p.path || ''), method = p.method === 'GET' ? 'GET' : 'POST';
-		if (path.indexOf('..') >= 0 || !/^\/(oauth|sync|users|shows)\/[A-Za-z0-9_\/?=&.-]*$/.test(path)) return ok({returnValue: false, errorText: 'path not allowed'});
+		if (path.indexOf('..') >= 0 || !/^\/(oauth|sync|users|shows|scrobble)\/[A-Za-z0-9_\/?=&.-]*$/.test(path)) return ok({returnValue: false, errorText: 'path not allowed'});
 		var u = require('url').parse(TRAKT_URL + path), data = method === 'POST' ? JSON.stringify(p.body || {}) : '';
 		var h = {'Content-Type': 'application/json', 'User-Agent': 'TVHome/' + VERSION + ' (webOS)', 'trakt-api-version': '2', 'trakt-api-key': String(p.clientId || '')};   // Trakt's front door refuses requests without a User-Agent
 		if (p.token) h.Authorization = 'Bearer ' + p.token;
@@ -482,6 +483,49 @@ function traktCall (p) {
 	});
 }
 
+// LG's own screensaver, replaced by TV Home's idle screen. The power service (tvpowerd) tells its clients just before the screensaver starts: {state: "Active",
+// timestamp: "..."} to whoever registered with registerScreenSaverRequest, and waits for their answer (responseScreenSaverRequest, the timestamp sent back AS TEXT). An
+// answer of ack:false stops it (undocumented by LG; the method names are in tvpowerd, the behaviour was seen on webOS 25). When the page has said it wants to take over,
+// the request is refused and TV Home is launched with {ambient: true}: it shows its idle screen from whatever app was in front (the page leaves it with any key).
+// If the page cannot show it (no pictures yet), it says so and the next request is let through for a minute, so the screen never stays still and bare.
+var ambientTakeover = false, lgAllowUntil = 0;
+function onScreenSaverRequest (msg) {
+	log('screensaver: message ' + msg.replace(/\s+/g, ' ').slice(0, 220));   // everything the power service sends, to see its whole protocol
+	var ts = /"timestamp"\s*:\s*"?(\d+)"?/.exec(msg), st = /"state"\s*:\s*"([^"]*)"/.exec(msg);
+	if (!ts || !st || st[1] !== 'Active') return;
+	var ours = ambientTakeover && Date.now() > lgAllowUntil;
+	luna(POWER + 'responseScreenSaverRequest', {clientName: 'tvhome', ack: !ours, timestamp: ts[1]}).then(function (r) {
+		log('screensaver: request ' + ts[1] + ' -> ' + (ours ? 'TV Home' : 'LG') + ' (' + r.returnValue + (r.errorText ? ', ' + r.errorText : '') + ')');
+		if (!(ours && r.returnValue)) return;
+		luna(APPMGR + 'launch', {id: TV_HOME_APP, params: {ambient: true, at: Date.now()}});
+		// A refusal alone does not stop it: the power service goes on to "Screen Saver Ready" and starts LG's app about 4 s later, unless something cancels it ("Received
+		// turnOnScreen at Screen Saver Ready. Go to Active" in tvpowerd). Launching TV Home does it when TV Home was behind another app; when its idle screen is already up
+		// nothing happens and LG's screensaver came on anyway (seen: twice). So the screen is "turned on" (it is already on: it only cancels the launch) a few times
+		// during that window, and if LG's app still got up it is closed.
+		[600, 1800, 3000].forEach(function (ms) { setTimeout(function () { luna(POWER + 'turnOnScreen', {}); }, ms); });
+		setTimeout(function () {
+			luna(POWER + 'getPowerState', {}).then(function (p) {
+				if (p && String(p.state).replace(/\s+/g, '') === 'ScreenSaver') {
+					log('screensaver: LG\'s one came up anyway, closing it');
+					luna(APPMGR + 'closeByAppId', {id: 'com.webos.app.screensaver'}).then(function () { luna(POWER + 'turnOnScreen', {}); });
+				}
+			});
+		}, 5500);
+	});
+}
+function watchScreenSaver () {
+	var buf = '';
+	var child = cp.spawn('luna-send', ['-i', POWER + 'registerScreenSaverRequest', JSON.stringify({subscribe: true, clientName: 'tvhome'})], {stdio: ['ignore', 'pipe', 'ignore']});
+	child.stdout.on('data', function (d) {
+		buf += d;
+		var end;
+		while ((end = buf.indexOf('\n')) !== -1) { var msg = buf.slice(0, end); buf = buf.slice(end + 1); onScreenSaverRequest(msg); }
+		if (buf.length > 8192) buf = '';
+	});
+	child.on('exit', function () { setTimeout(watchScreenSaver, 5000); });
+	log('screensaver: following the requests');
+}
+
 var GET = {
 	'/status': function () { return Promise.resolve({returnValue: true, service: 'launcher', version: VERSION}); },
 	'/apps': function () { return listApps().then(function (apps) { return {returnValue: true, apps: apps}; }); },
@@ -496,6 +540,13 @@ var POST = {
 	'/volume': function (p) { return volume(p.action); },
 	'/screen': function (p) { return setScreen(p.on === true); },
 	'/trakt': traktCall,
+	// the page says whether TV Home's idle screen should replace LG's screensaver (Settings → Ambient mode is not Off); said again at each start and each change
+	'/ambient': function (p) { ambientTakeover = p.on === true; log('screensaver: TV Home takes over = ' + ambientTakeover); return Promise.resolve({returnValue: true, takeover: ambientTakeover}); },
+	// the page could not show its idle screen: LG's one may start (the next request goes through)
+	'/ambient/failed': function () {
+		lgAllowUntil = Date.now() + 60000; log('screensaver: TV Home could not show its idle screen, LG\'s one is allowed');
+		return luna(POWER + 'turnOnScreenSaver', {});
+	},
 	'/log': function (p) { log('perf ' + JSON.stringify(p.perf || {}).slice(0, 1500)); return Promise.resolve({returnValue: true}); }
 };
 
@@ -529,6 +580,7 @@ http.createServer(function (req, res) {
 	watchHome();
 	watchForeground();
 	watchPower();
+	watchScreenSaver();
 	bootLaunch(0, 0);
 	log('listening on ' + HOST + ':' + PORT + ' (pid ' + process.pid + ')');
 });

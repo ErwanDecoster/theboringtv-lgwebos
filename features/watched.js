@@ -23,6 +23,7 @@
     var it = cur; cur = null;
     if (how === 'yes') { TV.seen.mark(it, true); TV.toast('Marked as seen'); }
     else if (how === 'no') { TV.seen.skip(it, true); TV.toast('We won’t suggest it again'); }
+    else if (how === 'part' && TV.traktStarted) TV.traktStarted(it);   // watched some, not all: a series Trakt does not know yet is noted as started
     if (how !== 'later') done();
     TV.closeView();
   }

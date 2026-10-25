@@ -64,6 +64,8 @@
     'Not supported on this TV': 'Non pris en charge sur cette TV', 'Needs the TV Home service (rooted TV)': 'Nécessite le service TV Home (TV rootée)', 'Could not look up where to watch': 'Impossible de chercher où regarder',
     'Could not load details': 'Impossible de charger les détails', 'Added to your watchlist': 'Ajouté à « À voir »', 'Removed from your watchlist': 'Retiré de « À voir »',
     // seen / not interested, Trakt
+    'Noted as started on Trakt': 'Noté comme commencé sur Trakt', 'Trakt: could not note it': 'Trakt : impossible de le noter',
+    'Idle screen dimming': 'Atténuation de l’écran d’inactivité', 'A veil that darkens the idle screen more and more, to spare the OLED pixels. Light, Standard or Strong sets how dark it gets': 'Un voile qui assombrit de plus en plus l’écran d’inactivité, pour ménager les pixels OLED. Légère, Standard ou Forte règle son niveau le plus sombre', 'Light': 'Légère', 'Strong': 'Forte',
     'Pictures are still loading': 'Les images sont encore en cours de chargement',
     'Picture quality': 'Qualité des images', 'High brings in the full-size pictures behind the home screen and in the ambient slideshow: sharper, a little slower to load. Standard keeps the lighter ones': 'Haute utilise les images en taille réelle derrière l’accueil et dans le diaporama d’ambiance : plus nettes, un peu plus lentes à charger. Standard garde les plus légères', 'High': 'Haute',
     'View details': 'Voir les détails',

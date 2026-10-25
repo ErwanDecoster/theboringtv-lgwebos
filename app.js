@@ -437,12 +437,23 @@
   // "Continue watching": what Trakt says you are in the middle of (when connected), then the titles you opened from here that you did not finish
   var cont = store('continueTrakt') || [];
   function continuing() {
-    var have = {}, out = [];
-    // Trakt's list: a series you started is "seen" for Trakt (its first episode), so only what you finished here leaves it
+    // One list, newest first, whatever the source. Trakt knows what you scrobbled or marked there (its date is when), TV Home knows what you opened from here (its date is when):
+    // Crunchyroll and most apps tell Trakt nothing, so Trakt's dates can be weeks old for a series you started yesterday. A title in both keeps Trakt's card (next episode, progress)
+    // and the more recent of the two dates. Only what is finished leaves it: a series Trakt knows is "seen" from its first episode, so that alone does not remove it.
+    var byKey = {}, out = [];
     function mine(x) { var k = skey(x); return seen.some(function (y) { return skey(y) === k; }); }
-    cont.forEach(function (x) { if (x.tmdb && !have[skey(x)] && !mine(x)) { have[skey(x)] = 1; out.push(x); } });
-    recent.forEach(function (x) { if (!x.tmdb) return out.push(x); if (!have[skey(x)] && !isSeen(x)) { have[skey(x)] = 1; out.push(x); } });
-    return out;
+    cont.forEach(function (x) { if (x.tmdb && !mine(x)) byKey[skey(x)] = x; });
+    recent.forEach(function (x) {
+      if (!x.tmdb) return out.push(x);
+      var k = skey(x);
+      if (mine(x) || (x.tmdb.type === 'movie' && synced[k])) return;       // finished (a movie Trakt has watched is done; a series is only started)
+      var t = byKey[k];
+      if (!t) byKey[k] = x;
+      else if ((x.at || 0) > (t.at || 0)) byKey[k] = Object.assign({}, t, {at: x.at});
+    });
+    Object.keys(byKey).forEach(function (k) { out.push(byKey[k]); });
+    out.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    return out.slice(0, 20);
   }
   function setContinue(list) { cont = list; store('continueTrakt', list); buildRows(); }
   function ago(t) {
@@ -685,6 +696,7 @@
     document.querySelector('[data-act=live]').classList.toggle('off', S.liveTab === false);
     $('avatar').classList.toggle('off', noAvatar());
     tick();
+    window.dispatchEvent(new Event('tvsettings'));   // features that depend on a setting (ambient mode tells the helper service)
   }
   // `back`: the Back key (one step back, to the quick settings if that is where we came from); otherwise the X button (close everything).
   function closeSettings(back) {
@@ -1295,7 +1307,7 @@
       rowsTimer = setTimeout(function () { rowsTimer = 0; if (base.length && rowProviders.some(function (p) { return p(); })) buildRows(); }, 0);
     },
     refresh: function () { buildRows(); },
-    setContinue: setContinue, continuing: function () { return cont; },
+    setContinue: setContinue, traktContinue: function () { return cont; },   // the raw Trakt part; what the row shows is continuing()
     itemDetails: function (it) { return openItem(it); },   // long OK on a card of "Continue watching": details.js shows the details page
     fullOk: fullOk, fullBg: fullBg, blurredBg: blurredBg, noteBackdrops: noteBackdrops, refineBest: refineBest,
     refreshAvatar: function () { $('avatar').classList.toggle('off', noAvatar()); buildNav(); },
