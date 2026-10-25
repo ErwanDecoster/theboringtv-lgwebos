@@ -264,9 +264,14 @@
     return mine;
   }
   function forYou(providers) {
-    var mine = minePerProvider(providers), saved = store('watchlist') || [], opened = store('recent') || [], seen = {}, seeds = [], owned = {}, savedKeys = {};
+    var mine = minePerProvider(providers), saved = store('watchlist') || [], opened = store('recent') || [], got = {}, seeds = [], owned = {}, savedKeys = {};
+    // what you marked as seen counts most (it is what you really watched), and nothing seen or skipped is ever suggested
+    seen.slice(0, 4).forEach(function (x) { savedKeys[keyOf(x)] = 1; });
     saved.forEach(function (x) { if (x.tmdb) savedKeys[keyOf(x)] = 1; });
-    opened.concat(saved).forEach(function (x) { if (x && x.tmdb) { owned[keyOf(x)] = 1; if (!seen[keyOf(x)]) { seen[keyOf(x)] = 1; seeds.push(x); } } });
+    Object.keys(synced).forEach(function (k) { owned[k] = 1; });
+    skipped.forEach(function (x) { owned[keyOf(x)] = 1; });
+    seen.slice(0, 4).concat(opened, saved).forEach(function (x) { if (x && x.tmdb) { owned[keyOf(x)] = 1; if (!got[keyOf(x)]) { got[keyOf(x)] = 1; seeds.push(x); } } });
+    seen.forEach(function (x) { owned[keyOf(x)] = 1; });
     seeds = seeds.slice(0, 8);
     if (!seeds.length || !Object.keys(mine).length) return Promise.resolve([]);
     return pool(seeds, 4, function (sd) { return tmdb(sd.tmdb.type + '/' + sd.tmdb.id + '/recommendations').then(function (r) { return r.results || []; }); }).then(function (lists) {
@@ -334,8 +339,72 @@
     var keep = {title: it.title, sub: it.sub, meta: it.meta, img: it.img, bg: it.bg, blur: it.blur, src: it.src, svc: it.svc, params: it.params, tmdb: it.tmdb, at: Date.now()};
     recent = [keep].concat(recent.filter(function (x) { return x.title !== it.title; })).slice(0, 12);
     store('recent', recent);
+    if (window.TV && window.TV.onOpened) window.TV.onOpened(keep);
     buildRows();
   }
+  // Seen / not interested: what the recommendations must not suggest again. `seen` holds the titles you marked (with what a card needs),
+  // `synced` the keys ("movie:603") that came from Trakt or an import (no card data), `skipped` the titles you said you are not interested in.
+  var seen = store('seen') || [], skipped = store('skipped') || [], synced = store('syncedKeys') || {}, seenListeners = [];
+  function skey(x) { return x.tmdb.type + ':' + x.tmdb.id; }
+  function isSeen(x) { var k = skey(x); return !!synced[k] || seen.some(function (y) { return skey(y) === k; }); }
+  function isSkipped(x) { var k = skey(x); return skipped.some(function (y) { return skey(y) === k; }); }
+  function slim(x) { return {title: x.title, sub: x.sub, meta: x.meta, img: x.img, bg: x.bg, blur: x.blur, src: x.src, tmdb: x.tmdb}; }
+  function setSeen(x, on) {
+    var k = skey(x);
+    seen = seen.filter(function (y) { return skey(y) !== k; });
+    // finished: it leaves "Continue watching" (a title you marked yourself; what Trakt says is not used, a series there is "seen" from its first episode)
+    if (on) { recent = recent.filter(function (y) { return !y.tmdb || skey(y) !== k; }); store('recent', recent); }
+    if (on) { var c = slim(x); c.seenAt = Date.now(); seen.unshift(c); seen = seen.slice(0, 200); skipped = skipped.filter(function (y) { return skey(y) !== k; }); store('skipped', skipped); }
+    else if (synced[k]) { delete synced[k]; store('syncedKeys', synced); }
+    store('seen', seen);
+    seenListeners.forEach(function (fn) { try { fn(x, on); } catch (e) { /* a listener must not break the screen */ } });
+    buildRows();
+  }
+  function setSkipped(x, on) {
+    var k = skey(x);
+    skipped = skipped.filter(function (y) { return skey(y) !== k; });
+    if (on) { skipped.unshift(slim(x)); skipped = skipped.slice(0, 300); }
+    store('skipped', skipped);
+    buildRows();
+  }
+  // titles finished elsewhere (Trakt) shown in "Recently finished": added quietly, nothing is sent back
+  function importSeen(cards) {
+    var have = {}, n = 0;
+    seen.forEach(function (y) { have[skey(y)] = 1; });
+    cards.forEach(function (x) {
+      var k = skey(x); if (have[k]) return;
+      var c = slim(x); c.seenAt = x.seenAt || Date.now(); seen.push(c); have[k] = 1; n++;
+      recent = recent.filter(function (y) { return !y.tmdb || skey(y) !== k; });
+    });
+    if (!n) return 0;
+    seen.sort(function (a, b) { return (b.seenAt || 0) - (a.seenAt || 0); }); seen = seen.slice(0, 200);
+    store('seen', seen); store('recent', recent); buildRows();
+    return n;
+  }
+  // keys learnt from outside ({"movie:603": timestamp}): kept as plain keys, they only exclude titles
+  function mergeSynced(map) {
+    var n = 0;
+    Object.keys(map || {}).forEach(function (k) { if (!synced[k]) { synced[k] = map[k]; n++; } });
+    if (n) { store('syncedKeys', synced); buildRows(); }
+    return n;
+  }
+  // rows of the home screen without what you have seen (only in the suggestion rows) or are not interested in (everywhere)
+  function unwanted(row) {
+    var strict = row.title === 'Picked for you' || /^New on /.test(row.title);
+    if (!row.items) return row;
+    return Object.assign({}, row, {items: row.items.filter(function (it) { return !it.tmdb || !(isSkipped(it) || (strict && isSeen(it))); })});
+  }
+  // "Continue watching": what Trakt says you are in the middle of (when connected), then the titles you opened from here that you did not finish
+  var cont = store('continueTrakt') || [];
+  function continuing() {
+    var have = {}, out = [];
+    // Trakt's list: a series you started is "seen" for Trakt (its first episode), so only what you finished here leaves it
+    function mine(x) { var k = skey(x); return seen.some(function (y) { return skey(y) === k; }); }
+    cont.forEach(function (x) { if (x.tmdb && !have[skey(x)] && !mine(x)) { have[skey(x)] = 1; out.push(x); } });
+    recent.forEach(function (x) { if (!x.tmdb) return out.push(x); if (!have[skey(x)] && !isSeen(x)) { have[skey(x)] = 1; out.push(x); } });
+    return out;
+  }
+  function setContinue(list) { cont = list; store('continueTrakt', list); buildRows(); }
   function ago(t) {
     var m = Math.round((Date.now() - t) / 60000);
     return m < 60 ? (m || 1) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' hr ago' : Math.round(m / 1440) + ' days ago';
@@ -392,12 +461,13 @@
 
   // ---------- render ----------
   var rowsData = [], heroItems = [], base = [], rowProviders = [];
+  var rowsTimer = 0;
   function buildRows() {
     var extra = rowProviders.map(function (fn) { return fn(); }).filter(Boolean);
     // the apps come first, right under the featured titles: most evenings the plan is "open Netflix / YouTube", one press down
     var head = base.slice(0, 2);
     if (head[1] && head[1].apps) head.reverse();
-    rowsData = head.concat([{title: 'Continue watching', items: recent}], extra, base.slice(2))
+    rowsData = head.concat([{title: 'Continue watching', items: continuing()}], extra, base.slice(2)).map(unwanted)
       .filter(function (x) { return (x.apps || x.items).length; });
     if (base.length) render();
   }
@@ -475,7 +545,7 @@
   function card(it) {
     var c = el('div', 'card f', '<div class="pic"><img src="' + it.img + '" alt="" loading="lazy" decoding="async">' +
       (it.src === 'YouTube' ? '' : '<b class="ttl">' + esc(it.title) + '</b>') + '</div>' +
-      '<div class="cap">' + esc(it.at ? it.svc.name + '  ·  opened ' + ago(it.at) : it.src === 'YouTube' ? it.title : ((it.svcs || it.why) ? it.src + '  ·  ' : '') + it.meta) + '</div>');
+      '<div class="cap">' + esc(it.cap ? it.cap : it.at ? (it.svc ? it.svc.name : it.src) + '  ·  opened ' + ago(it.at) : it.src === 'YouTube' ? it.title : ((it.svcs || it.why) ? it.src + '  ·  ' : '') + it.meta) + '</div>');
     c.item = it; c.onok = function () { TV.itemOk(it); };
     return c;
   }
@@ -590,6 +660,7 @@
   var clearArmed = false;
   function choose(e) {
     var row = SROWS[+e.dataset.r], o = row.opts[+e.dataset.i], v = draft[row.key];
+    if (row.action) return row.action(o[0]);   // a row added by a feature that does something instead of choosing a value
     if (row.key === 'unhide') { store('appHidden', []); refreshApps(); return toast('Hidden apps are back'); }
     if (row.key === 'clear') {
       if (!clearArmed) { clearArmed = true; setTimeout(function () { clearArmed = false; }, 4000); return toast('Press OK again to confirm'); }
@@ -929,6 +1000,10 @@
         if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; startEditing(); }, 550);
         return;
       }
+      if (cur && cur.item && cur.item.tmdb && view === 'home' && (cur.item.cont || cur.item.at)) { // a card of "Continue watching": opens the title on release, its details page if held
+        if (!ev.repeat && !holdTimer) holdTimer = setTimeout(function () { holdTimer = 0; holdFired = true; TV.itemDetails(cur.item); }, 550);
+        return;
+      }
       if (ev.repeat) return;     // holding OK must not press again and again (open, then launch)
       return activate(cur);
     }
@@ -1072,8 +1147,19 @@
     openView: openView, closeView: closeView,
     rebuild: function (r, c) { if (r != null) { pos.r = r; pos.c = c || 0; } buildNav(); },
     pos: function () { return pos; },
-    addRow: function (fn) { rowProviders.push(fn); },   // fn() -> {title, items} | null, shown after Continue watching
+    // fn() -> {title, items} | null, shown after Continue watching. The home screen is first drawn from the cache, before the features have registered
+    // their rows, and is not rebuilt when the fresh data equals the cache: so a row that has something to show asks for one rebuild, once, whoever registers
+    addRow: function (fn) {
+      rowProviders.push(fn);
+      if (rowsTimer) return;
+      rowsTimer = setTimeout(function () { rowsTimer = 0; if (base.length && rowProviders.some(function (p) { return p(); })) buildRows(); }, 0);
+    },
     refresh: function () { buildRows(); },
+    setContinue: setContinue, continuing: function () { return cont; },
+    itemDetails: function (it) { return openItem(it); },   // long OK on a card of "Continue watching": details.js shows the details page
+    onOpened: null,                // set by watched.js: called with the title just opened from this screen
+    seen: {has: isSeen, skipped: isSkipped, mark: setSeen, skip: setSkipped, list: function () { return seen; }, merge: mergeSynced, importCards: importSeen,
+      onChange: function (fn) { seenListeners.push(fn); }},
     addTab: function (label, viewName) {
       var t = el('span', 'tab f', esc(label)); t.dataset.view = viewName;
       document.querySelector('#top .pill').insertBefore(t, document.querySelector('[data-tab=apps]'));
@@ -1190,8 +1276,8 @@
       // First start with no cached screen: show the featured titles and the apps as soon as those two answers are in, instead of waiting
       // for the slowest of the 15 or so requests
       if (!cached) Promise.all([pMine, pRated]).then(function (x) {
-        var seen = {}, early = [];
-        (x[0] || []).concat(x[1] || []).forEach(function (it) { var k = keyOf(it); if (!seen[k]) { seen[k] = 1; early.push(it); } });
+        var dup = {}, early = [];
+        (x[0] || []).concat(x[1] || []).forEach(function (it) { var k = keyOf(it); if (!dup[k] && !isSeen(it) && !isSkipped(it)) { dup[k] = 1; early.push(it); } });
         if (!early.length || drawnEarly || cachedSig) return;
         drawnEarly = true;
         heroItems = early.slice(0, 6);
@@ -1209,7 +1295,7 @@
       var mine = r[0] || [], rated = r[1] || [], popular = arrangeServiceRows(r[2] || []), fresh = r[3] ? arrangeServiceRows(r[3], 'New on your services') : [];
       // "Picked for you": your own suggestions first, completed by the best-rated titles on your services when there are few
       var taken = {}, picks = [];
-      mine.concat(rated).forEach(function (it) { var k = keyOf(it); if (!taken[k]) { taken[k] = 1; picks.push(it); } });
+      mine.concat(rated).forEach(function (it) { var k = keyOf(it); if (!taken[k] && !isSeen(it) && !isSkipped(it)) { taken[k] = 1; picks.push(it); } });
       // "New on your services" does not repeat what is picked for you; "Popular on your services" shows what is popular, wherever else it appears
       fresh = fresh.map(function (row) { return {title: row.title, svc: row.svc, items: row.items.filter(function (it) { return !taken[keyOf(it)]; })}; })
         .filter(function (row) { return row.items.length >= MIN_ROW_ITEMS; });

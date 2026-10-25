@@ -9,15 +9,24 @@
   // ---------- watchlist ----------
   var list = TV.store('watchlist') || [];
   function inList(it) { return list.some(function (x) { return x.tmdb.id === it.tmdb.id && x.tmdb.type === it.tmdb.type; }); }
-  function toggle(it) {
-    var had = inList(it);
+  var wlListeners = [];
+  // quiet: a change that comes from outside (Trakt) must not be sent back
+  function put(it, on, quiet) {
+    if (on === inList(it)) return false;
     list = list.filter(function (x) { return !(x.tmdb.id === it.tmdb.id && x.tmdb.type === it.tmdb.type); });
-    if (!had) list.unshift({title: it.title, sub: it.sub, meta: it.meta, img: it.img, bg: it.bg, blur: it.blur, src: it.src, svc: it.svc, tmdb: it.tmdb});
+    if (on) list.unshift({title: it.title, sub: it.sub, meta: it.meta, img: it.img, bg: it.bg, blur: it.blur, src: it.src, svc: it.svc, tmdb: it.tmdb});
     TV.store('watchlist', list);
-    TV.toast(had ? 'Removed from your watchlist' : 'Added to your watchlist');
+    if (!quiet) wlListeners.forEach(function (fn) { try { fn(it, on); } catch (e) { /* a listener must not break the screen */ } });
     TV.refresh();
-    return !had;
+    return true;
   }
+  function toggle(it) {
+    var on = !inList(it);
+    put(it, on);
+    TV.toast(on ? 'Added to your watchlist' : 'Removed from your watchlist');
+    return on;
+  }
+  TV.watchlist = {list: function () { return list; }, has: inList, put: put, onChange: function (fn) { wlListeners.push(fn); }};
   TV.addRow(function () { return list.length ? {title: 'My watchlist', items: list} : null; });
 
   // ---------- data ----------
@@ -62,6 +71,22 @@
     else {
       var wl = btn(inList(it) ? '✓ In watchlist' : '＋ Watchlist', function () { wl.textContent = toggle(it) ? '✓ In watchlist' : '＋ Watchlist'; });
       btns.appendChild(wl);
+      // seen / not interested: both keep the title out of the suggestions (and Trakt, if connected, is told about what you saw)
+      var sn = btn(TV.seen.has(it) ? '✓ Seen' : '○ Mark as seen', function () {
+        var on = !TV.seen.has(it); TV.seen.mark(it, on);
+        TV.toast(on ? 'Marked as seen' : 'Removed from seen');
+        // "not interested" only makes sense for a title you have not seen: draw the buttons again
+        var dd = cache[it.tmdb.type + '/' + it.tmdb.id];
+        render(it, dd && !dd.then ? dd : null);
+        var all = [].slice.call(box.querySelectorAll('.dbtns .f'));
+        TV.rebuild(0, Math.max(0, all.indexOf(box.querySelector('.dbtns .dseen'))));
+      });
+      sn.classList.add('dseen');
+      var ni = TV.seen.has(it) ? null : btn(TV.seen.skipped(it) ? '✓ Not interested' : '✕ Not interested', function () {
+        var on = !TV.seen.skipped(it); TV.seen.skip(it, on); ni.textContent = on ? '✓ Not interested' : '✕ Not interested';
+        TV.toast(on ? 'We won’t suggest it again' : 'Suggestions allowed again');
+      });
+      btns.appendChild(sn); if (ni) btns.appendChild(ni);   // a title you saw is already out of the suggestions: "not interested" would add nothing
     }
     box.querySelector('.dextra').textContent = extra;
     var recs = d && ((d.recommendations || {}).results || []).filter(function (m) { return m.backdrop_path; }).slice(0, 20);
@@ -107,13 +132,14 @@
     }
   });
 
-  function openDetails(it) {
-    if (!it.tmdb || it.at || it.src === 'YouTube') return TV.openItem(it);
+  function openDetails(it, force) {
+    if (!it.tmdb || (it.at && !force) || it.src === 'YouTube') return TV.openItem(it);
     if (TV.view() !== 'details') { // remember where we came from on home
       var f = document.querySelector('#rows .focus'), row = f && f.closest('.row');
       origin = row ? {row: row.querySelector('h3').textContent, col: [].indexOf.call(f.parentNode.children, f)} : null;
     }
     TV.openView('details', it);
   }
-  TV.itemOk = openDetails;
+  TV.itemOk = function (it) { return openDetails(it); };
+  TV.itemDetails = function (it) { return openDetails(it, true); };   // long OK on "Continue watching"
 })();

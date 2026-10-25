@@ -25,9 +25,9 @@
     // rows
     'Top picks for you': 'Sélection pour vous', 'Picked for you': 'Choisis pour vous', 'New on your services': 'Nouveautés sur vos services', 'Top rated on your services': 'Les mieux notés sur vos services',
     'New on your services row': 'Rangée Nouveautés', 'Live TV tab': 'Onglet En direct', 'The Live tab at the top of the home screen': 'L’onglet En direct en haut de l’accueil', 'Profile button': 'Bouton de profil', 'The round button at the top of the home screen; profiles stay available from the quick settings': 'Le bouton rond en haut de l’accueil ; les profils restent accessibles depuis les réglages rapides', 'Show': 'Afficher', 'Hide': 'Masquer', 'Recent releases included in your subscriptions': 'Sorties récentes incluses dans vos abonnements', 'Popular on your services': 'Populaire sur vos services', 'Popular now': 'Populaire en ce moment',
-    'Trending today': 'Tendances du jour', 'Trending on YouTube': 'Tendances YouTube', 'Continue watching': 'Reprendre la lecture', 'My watchlist': 'Ma liste',
+    'Trending today': 'Tendances du jour', 'Trending on YouTube': 'Tendances YouTube', 'Continue watching': 'Continuer à regarder', 'My watchlist': 'À voir',
     'More like this': 'Titres similaires', 'Where to watch': 'Où regarder', 'Edit apps': 'Modifier les applications', 'Move': 'Déplacer', 'Remove from home': 'Retirer de l’accueil',
-    'Not on your services': 'Pas sur vos services', 'Trailer': 'Bande-annonce', '＋ Watchlist': '＋ Ma liste', '✓ In watchlist': '✓ Dans ma liste',
+    'Not on your services': 'Pas sur vos services', 'Trailer': 'Bande-annonce', '＋ Watchlist': '＋ À voir', '✓ In watchlist': '✓ Dans À voir',
     'Movie': 'Film', 'Series': 'Série', 'Rent': 'Location', 'Buy': 'Achat',
     // settings
     'Country': 'Pays', 'Where to look up what’s streaming': 'Où chercher ce qui est disponible en streaming',
@@ -62,7 +62,24 @@
     'Waiting for the internet…': 'En attente d’Internet...', 'Hidden apps are back': 'Les applications masquées sont de retour', 'Continue watching cleared': 'Historique effacé',
     'Edit mode: choose Hide / show or Reorder, then OK on an app': 'Mode édition : choisissez Masquer / afficher ou Réorganiser, puis OK sur une application', 'Hide / show': 'Masquer / afficher', 'Transcribing…': 'Transcription…', 'The speech server is not available': 'Le serveur de reconnaissance n’est pas joignable', 'The microphone is busy': 'Le micro est déjà utilisé', 'The TV service is not available': 'Le service de la télé n’est pas disponible', 'Voice dictation failed': 'La dictée vocale a échoué', 'Voice dictation could not reach Home Assistant': 'La dictée vocale n’a pas pu joindre Home Assistant', 'Listening…': 'Je vous écoute…', 'Microphone not allowed': 'Micro non autorisé', 'Voice dictation is not allowed on this TV': 'La dictée vocale n’est pas autorisée sur cette télé', 'Voice dictation could not reach its service': 'La dictée vocale n’a pas pu joindre son service', 'Nothing heard': 'Rien entendu', 'No microphone available': 'Aucun micro disponible', 'Language not supported for dictation': 'Langue non prise en charge pour la dictée', 'Voice dictation could not start': 'La dictée vocale n’a pas pu démarrer', 'Reorder': 'Réorganiser', 'On the home screen': 'Sur l’accueil', 'Hidden apps': 'Applications masquées', 'No hidden app': 'Aucune application masquée', 'Show it on the home screen first': 'Affichez-la d’abord sur l’accueil', 'Left / right to move, OK when done': 'Gauche / droite pour déplacer, OK pour terminer',
     'Not supported on this TV': 'Non pris en charge sur cette TV', 'Needs the TV Home service (rooted TV)': 'Nécessite le service TV Home (TV rootée)', 'Could not look up where to watch': 'Impossible de chercher où regarder',
-    'Could not load details': 'Impossible de charger les détails', 'Added to your watchlist': 'Ajouté à votre liste', 'Removed from your watchlist': 'Retiré de votre liste',
+    'Could not load details': 'Impossible de charger les détails', 'Added to your watchlist': 'Ajouté à « À voir »', 'Removed from your watchlist': 'Retiré de « À voir »',
+    // seen / not interested, Trakt
+    'Mark as seen': 'Marquer comme vu', '○ Mark as seen': '○ Marquer comme vu', '✓ Seen': '✓ Vu', '✕ Not interested': '✕ Pas intéressé', '✓ Not interested': '✓ Pas intéressé',
+    'Marked as seen': 'Marqué comme vu', 'Removed from seen': 'Retiré des titres vus', 'We won’t suggest it again': 'Nous ne le proposerons plus', 'Suggestions allowed again': 'Suggestions de nouveau autorisées',
+    'Recently finished': 'Terminés récemment', 'Seen it?': 'Vu ?', 'You opened it a while ago. Did you watch it?': 'Vous l’avez ouvert il y a un moment. L’avez-vous regardé ?',
+    '✓ Yes, I saw it': '✓ Oui, je l’ai vu', 'Not finished': 'Pas terminé', 'Ask me later': 'Me redemander plus tard',
+    'Ask if I watched a title': 'Demander si j’ai regardé un titre', 'After you open a title and come back later, asks whether you saw it. Seen titles are never suggested again': 'Quand vous ouvrez un titre puis revenez plus tard, demande si vous l’avez vu. Les titres vus ne sont plus proposés',
+    'Keeps your watch history across services': 'Garde votre historique de visionnage entre les services',
+    'Connect Trakt': 'Connecter Trakt', 'Connect': 'Connecter', 'Disconnect': 'Déconnecter', 'Sync now': 'Synchroniser',
+    'On your phone or computer, open': 'Sur votre téléphone ou ordinateur, ouvrez', 'and enter this code:': 'et saisissez ce code :',
+    'This page connects by itself once you have approved.': 'Cette page se connecte toute seule dès que vous avez validé.', 'Asking Trakt for a code…': 'Demande d’un code à Trakt...',
+    'What you watched on Trakt is never suggested again, and what you mark as seen here is sent to Trakt (a series as fully watched).': 'Ce que vous avez regardé sur Trakt n’est plus jamais proposé, et ce que vous marquez comme vu ici est envoyé à Trakt (une série est comptée comme vue en entier).',
+    'Link your Trakt account to keep one watch history across all your streaming services. You will get a short code to enter from your phone.': 'Reliez votre compte Trakt pour garder un seul historique sur tous vos services de streaming. Vous recevrez un court code à saisir depuis votre téléphone.',
+    'Set up Trakt': 'Configurer Trakt', 'Trakt keeps one watch history for all your streaming services. TV Home needs your own free Trakt app for that, which takes two minutes:': 'Trakt garde un seul historique pour tous vos services de streaming. TV Home a besoin pour cela de votre propre application Trakt gratuite, ce qui prend deux minutes :',
+    '1. On a computer, open trakt.tv/oauth/applications and create an app (redirect address: http://localhost, leave the rest empty).': '1. Sur un ordinateur, ouvrez trakt.tv/oauth/applications et créez une application (adresse de redirection : http://localhost, laissez le reste vide).',
+    '2. Copy its Client ID.': '2. Copiez son Client ID.', '3. Put it in keys.js as TRAKT_ID, then install the app again. The README has the details.': '3. Ajoutez-le dans keys.js sous TRAKT_ID, puis réinstallez l’application. Le README donne les détails.',
+    'Trakt connected': 'Trakt connecté', 'Trakt is up to date': 'Trakt est à jour', 'Trakt: sync failed': 'Trakt : échec de la synchronisation', 'Trakt: will retry later': 'Trakt : nouvel essai plus tard',
+    'The code expired': 'Le code a expiré', 'Refused on Trakt': 'Refusé sur Trakt', 'Syncing…': 'Synchronisation...', 'Disconnected': 'Déconnecté',
     'Clé TMDB manquante : ajoutez-la dans keys.js': 'Clé TMDB manquante : ajoutez-la dans keys.js'
   };
 
@@ -79,6 +96,15 @@
   }
   // sentences with a name, a number or a service inside
   var RULES = [
+    [/^(\d+) titles imported as seen$/, function (m) { return m[1] + ' titres importés comme vus'; }],
+    [/^(\d+) new titles from Trakt$/, function (m) { return m[1] + ' nouveaux titres depuis Trakt'; }],
+    [/^Account: (.+)$/, function (m) { return 'Compte : ' + m[1]; }],
+    [/^Last sync: (.*) · (\d+) titles$/, function (m) { return 'Dernière synchronisation : ' + m[1] + ' · ' + m[2] + ' titres'; }],
+    [/^Could not reach Trakt \((.*)\)$/, function (m) { return 'Trakt injoignable (' + m[1] + ')'; }],
+    [/^Sync failed \((.*)\)$/, function (m) { return 'Échec de la synchronisation (' + m[1] + ')'; }],
+    [/^Trakt error (\d+)$/, function (m) { return 'Erreur Trakt ' + m[1]; }],
+    [/^Up next(?:  ·  (.+))?$/, function (m) { return 'Épisode suivant' + (m[1] ? '  ·  ' + m[1] : ''); }],
+    [/^Resume  ·  (.+)$/, function (m) { return 'Reprendre  ·  ' + m[1].replace(/^(\d+)%$/, '$1 %'); }],
     [/^✓ (.+)$/, function (m) { return '✓ ' + (DICT[m[1]] || m[1]); }],   // the tick in front of a selected chip
     [/^Popular on (.+)$/, function (m) { return 'Populaire sur ' + m[1]; }],
     [/^Popular in (.+)$/, function (m) { return 'Populaire en ' + lang(m[1]); }],

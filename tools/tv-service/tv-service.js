@@ -455,8 +455,31 @@ function reply (res, status, body) {
 
 function readBody (req, cb) {
 	var body = '';
-	req.on('data', function (c) { body += c; if (body.length > 4096) req.destroy(); });
+	req.on('data', function (c) { body += c; if (body.length > 32768) req.destroy(); });
 	req.on('end', function () { try { cb(JSON.parse(body || '{}')); } catch (e) { cb({}); } });
+}
+
+// Trakt for the page: the TV page has no web origin ("null"), so Trakt's CORS rules would refuse its calls. The page sends them here instead.
+// Only api.trakt.tv, only the paths the page needs, and the page's own client id and token ride along: nothing is stored here.
+var TRAKT_URL = process.env.TRAKT_URL || 'https://api.trakt.tv';
+function traktCall (p) {
+	return new Promise(function (ok) {
+		var path = String(p.path || ''), method = p.method === 'GET' ? 'GET' : 'POST';
+		if (path.indexOf('..') >= 0 || !/^\/(oauth|sync|users|shows)\/[A-Za-z0-9_\/?=&.-]*$/.test(path)) return ok({returnValue: false, errorText: 'path not allowed'});
+		var u = require('url').parse(TRAKT_URL + path), data = method === 'POST' ? JSON.stringify(p.body || {}) : '';
+		var h = {'Content-Type': 'application/json', 'User-Agent': 'TVHome/' + VERSION + ' (webOS)', 'trakt-api-version': '2', 'trakt-api-key': String(p.clientId || '')};   // Trakt's front door refuses requests without a User-Agent
+		if (p.token) h.Authorization = 'Bearer ' + p.token;
+		if (data) h['Content-Length'] = Buffer.byteLength(data);
+		var req = (u.protocol === 'https:' ? require('https') : http).request({hostname: u.hostname, port: u.port, path: u.path, method: method, headers: h, timeout: 15000}, function (res) {
+			var text = '';
+			res.setEncoding('utf8');
+			res.on('data', function (c) { if (text.length < 2e6) text += c; });
+			res.on('end', function () { ok({returnValue: true, status: res.statusCode, pages: res.headers['x-pagination-page-count'] || 0, text: text}); });
+		});
+		req.on('timeout', function () { req.destroy(new Error('timeout')); });
+		req.on('error', function (e) { ok({returnValue: false, errorText: e.message}); });
+		req.end(data);
+	});
 }
 
 var GET = {
@@ -472,6 +495,7 @@ var POST = {
 	'/output': function (p) { return setChoice('sound', 'soundOutput', p.output); },
 	'/volume': function (p) { return volume(p.action); },
 	'/screen': function (p) { return setScreen(p.on === true); },
+	'/trakt': traktCall,
 	'/log': function (p) { log('perf ' + JSON.stringify(p.perf || {}).slice(0, 1500)); return Promise.resolve({returnValue: true}); }
 };
 

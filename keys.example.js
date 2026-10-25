@@ -13,6 +13,9 @@ window.KEYS = {
   // , HA_TOKEN: ''                                   // a long-lived access token (HA profile page)
   // , HA_WASHER: {status: 'sensor.washer_machine_state', end: 'sensor.washer_completion_time', total: 'sensor.washer_total_time'}
   // , HA_STT_PIPELINE: 'Anna'                         // name of the Assist pipeline that has a speech-to-text engine
+  // Trakt (optional, a watch history shared with your phone): create an app at https://trakt.tv/oauth/applications, redirect URI http://localhost (never used: sign-in is by code).
+  // Only the Client ID is needed (Trakt no longer issues a secret to new apps; an older app may add TRAKT_SECRET).
+  // , TRAKT_ID: ''
   // Your own speech server on the home network (preferred for dictation): POST <STT_URL>/transcribe?lang=fr with the raw audio
   // (16 kHz, 16 bit, mono) and "Authorization: Bearer <STT_TOKEN>"; it answers {"text": "..."}.
   // , STT_URL: 'http://192.168.1.20:10400'

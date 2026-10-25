@@ -1,0 +1,24 @@
+/* "Seen it?" question: laid out like the details page */
+#seenit { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 7; background: #0e1014; overflow: hidden; }
+#seenit[hidden] { display: none; }
+#seenit .dbg { position: absolute; top: 0; right: 0; width: 100%; height: 100%; object-fit: cover; }
+#seenit .dshade { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background:
+  linear-gradient(90deg, #0e1014 0%, rgba(14,16,20,.85) 35%, rgba(14,16,20,0) 70%),
+  linear-gradient(0deg, #0e1014 28%, rgba(14,16,20,.6) 45%, rgba(14,16,20,0) 65%); }
+#seenit .dbody { top: 280px; }
+
+/* Trakt connection page */
+#trakt { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 30; background: #0e1014; overflow: hidden; }
+#trakt[hidden] { display: none; }
+#trakt .dbody { top: 200px; }
+#trakt .tcode { font-size: 120px; font-weight: 600; letter-spacing: .12em; margin: 18px 0 26px; color: #fff; }
+
+/* texts of these pages: not the "dsub" / h1 of the details page, which the translator leaves alone (they hold titles from TMDB) */
+.thead { font-size: 64px; font-weight: 500; line-height: 1.06; margin-bottom: 14px; }
+.tsub { font-size: 24px; color: #dadce0; line-height: 1.4; margin-bottom: 12px; max-width: 900px; }
+.tdim { color: #9aa0a6; font-size: 21px; }
+.turl { font-size: 44px; font-weight: 600; color: #fff; margin: 4px 0 8px; }
+.theme-tvos #seenit, .theme-tvos #trakt { background: #000; }
+.theme-tvos .thead { font-size: 80px; font-weight: 800; letter-spacing: -.035em; line-height: 1; }
+.theme-tvos .tsub { color: rgba(255,255,255,.82); font-size: 25px; }
+.theme-tvos #seenit .dbody, .theme-tvos #trakt .dbody { left: 90px; }

@@ -50,6 +50,8 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 - **More recommendations:** "Picked for you", "Top rated on your services", "New on your services", your apps right under the hero.
 - **Apps:** hide / reorder with a long OK, a list of hidden apps to bring back, HDMI inputs with the name of what is plugged in.
 - **Search:** AZERTY / QWERTY / ABC keyboard, a clear button, and **voice dictation** with the TV's own microphone (see below).
+- **A real "seen" list:** mark titles as seen or "not interested", get asked "Seen it?" after you come back from a streaming app, optional **Trakt** sync, and an import of the
+  history you download from a streaming service. Seen titles are never suggested again (see [Watch history](#watch-history-seen-trakt-import)).
 - **Home Assistant washing machine pill** next to the weather (optional).
 - **Profiles:** free-text names with the on-screen keyboard, delete confirmation, "who is watching?" asked once per session.
 - **Screen off** that really works from the quick settings, and a power-off that is instant (see the field notes).
@@ -61,12 +63,13 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
   "Trending on YouTube", using [TMDB](https://www.themoviedb.org/) and the YouTube Data API.
 - **Where to watch:** pressing OK on a title opens a details page with "Watch on …" buttons for the services that
   stream it in your country, a trailer, cast and "More like this".
-- **Watchlist, Continue watching:** both saved on the TV. Netflix and the other apps don't share their watch history, so
-  Continue watching lists the titles you opened from this home screen.
+- **Watchlist ("À voir" in French), Continue watching:** both saved on the TV. Netflix and the other apps don't share their watch history, so without Trakt
+  Continue watching lists the titles you opened from this home screen; with Trakt it follows Trakt's progress (see below). Hold OK on a card of Continue watching for its details page.
 - **Search across services:** an on-screen keyboard; each result shows where it's streaming.
 - **Your apps:** checks a list of known apps (webOS won't list installed apps to non-system apps) and opens them; on a rooted TV the helper service lists every installed app.
 - **Settings:** country, recommendation languages (pick several), which services get rows, clock, theme, and more.
 - **Quick settings panel:** Wi-Fi, audio output, Bluetooth, volume, screensaver, inputs, picture and sound mode, brightness, screen off.
+- **Seen / not interested:** two more buttons on the details page; the "Recently finished" row; the suggestions learn from what you saw.
 - **Profiles:** each has its own settings, watchlist and history, plus a kids profile (family-friendly titles, some apps hidden).
 - **Ambient mode:** a slideshow of artwork with the clock when the TV is idle.
 
@@ -246,6 +249,57 @@ For Home Assistant, its built-in **LG webOS Smart TV** integration already contr
 over the TV's own network API, with no root needed. Use `tools/tv` (from a shell command) for the extras.
 The optional washing machine pill reads three Home Assistant entities over its WebSocket (`HA_WASHER` in `keys.js`); the token never leaves `keys.js`.
 
+## Watch history: seen, Trakt, import
+**What the app can and cannot know.** Netflix, Prime Video, Disney+ and the other streaming apps have no public interface that tells another app what you
+watched, and on the TV a web app cannot see inside them. The only things TV Home really knows are what you opened from its screen and what you tell it.
+So without Trakt "Continue watching" is only the list of titles you *opened* here (it says nothing about how far you watched), and the "seen" list is built from three sources:
+
+1. **You say so.** On a title's details page: **Mark as seen** or **Not interested**. Both keep the title out of "Picked for you" and "New on your services";
+   "Not interested" also hides it from the other rows. Titles you marked appear in the **Recently finished** row (open one to undo) and leave "Continue watching".
+2. **The app asks.** After you open a title, leave for the streaming app and come back at least 15 minutes later (within 24 hours), a "Seen it?" page asks:
+   *Yes, I saw it*, *Not finished*, *Not interested*, *Ask me later*. Turn it off in Settings → "Ask if I watched a title". Quick returns (under 15 minutes) are
+   assumed to mean you did not watch it.
+3. **Trakt** and **an import**, below.
+
+**How suggestions use it.** "Picked for you" starts from up to 8 titles: the 4 most recent you marked as seen (they weigh the most, like the watchlist), then
+what you opened and what is on your watchlist. For each, TMDB lists the titles people who liked it liked; they are scored, and only those included in one of
+*your* services' subscriptions are kept. Nothing seen, opened, saved or marked "not interested" is suggested. With no history it falls back to the best-rated titles on your services.
+
+### Trakt (optional)
+[Trakt](https://trakt.tv) is a free watch-history service with an open API. Connected, TV Home pulls what you watched there (movies, and series of which you
+watched at least one episode) so it is never suggested again, and sends what you mark as seen. Marking a **series** as seen counts as having watched all of it: Trakt records every episode
+(unmarking removes them all). To mark only some episodes, do it on Trakt.
+The other way round, from Trakt:
+- **Recently finished** gets a card for each of the 12 newest titles you finished there (a movie, or a series whose aired episodes are all watched, checked with Trakt's progress).
+- **Continue watching** is built from Trakt: the series you are in the middle of (among your 15 most recently watched, with the next episode, e.g. "Next episode · S2 E5") and the movies or
+  episodes paused part-way (Trakt keeps these only when a player reported them). Titles you opened here and did not finish stay after them. Trakt's own "Up Next" list is not used: it is not open to every app,
+  so the same result is rebuilt from the progress of each series. A series you only started is kept out of the suggestions but is not "finished".
+  **Hold OK** on a card to open its details page; a short press opens the title in its streaming app.
+- **À voir (watchlist)** is synced both ways: adding or removing a title here is sent at once, and the changes made on Trakt come down at the next sync. The app remembers what both sides
+  agreed on at the last sync, so a title removed on one side is removed on the other rather than added back.
+- Trakt pages its long lists (100 items by default since mid-2026): every page is read, so a long history is complete.
+1. Create an application at https://trakt.tv/oauth/applications and put its **Client ID** in `keys.js` as `TRAKT_ID` (see `keys.example.js`). Without it, Settings → Trakt only shows these steps.
+   No secret is needed: Trakt no longer issues one to new apps (sign-in is by code); an older app's `TRAKT_SECRET` is still used if you set it. The sign-in never redirects anywhere, but the form wants a
+   redirect URI: Trakt's development apps only accept `http://localhost`. Leave "JavaScript origins" empty: on the TV the page has no web address, so Trakt's CORS rules would refuse it; on a rooted TV the helper service (`tools/tv-service`, route `/trakt`, only `api.trakt.tv`
+   paths under `/oauth`, `/sync` and `/users`) makes the calls for the page, and the client ID and token travel with each request and are not stored there. Without the helper, or in a browser, the page calls Trakt directly,
+   which only works for a web address listed in the app's JavaScript origins.
+2. Settings → Trakt → Connect: the TV shows a code; enter it at trakt.tv/activate from your phone. The page connects by itself.
+   **Profiles:** the Client ID belongs to the app, so one is enough for the whole household. Each TV Home profile signs in to its own Trakt account (or none), and keeps
+   its own seen list, watchlist and Continue watching. Switch profile, then Settings → Trakt, to connect the next one. Deleting a profile forgets its Trakt connection on the TV (not on Trakt).
+3. It syncs at most every 6 hours at start-up, and on demand with "Sync now". If Trakt cannot be reached when you mark a movie, the change waits and is sent at the next sync.
+
+Trakt's own "scrobbling" (detecting what plays) is not used: it needs the player to cooperate, and the native TV apps do not.
+
+### Import a downloaded history (optional)
+Most services let you download your viewing history (Netflix: Account → Profile → Viewing activity → Download all; Amazon and Disney+ have a data request).
+Turn that CSV into a file the app reads once:
+```bash
+node tools/import-viewing-activity.mjs ~/Downloads/NetflixViewingHistory.csv    # needs Node 18+ and your TMDB key in keys.js
+```
+It matches the titles with TMDB (series lines such as "Show: Season 2: Episode" become the show; a few titles will not match and are listed) and writes `seen-import.js`
+(git-ignored) next to `index.html`. Install the app as usual (`ares-package` includes it): the profile that is open at the next start reads it once and shows a message.
+Imported titles only exclude suggestions; they are not sent to Trakt.
+
 ## Home Assistant: know when the TV goes off (power events)
 Detecting "TV off" by pinging it is unreliable: with Quick Start+ the TV keeps its network up in standby. The power service (`tvpowerd`) knows exactly
 what happens, so `tools/tv-service` listens to it and pushes a small JSON event to a Home Assistant **webhook** (or any URL) the moment it changes:
@@ -322,10 +376,14 @@ Each feature lives in `features/<name>.js` + `features/<name>.css` and only talk
 | `TV.openView(name, arg)` / `TV.closeView()` | Push / pop a view; closing restores the previous focus. |
 | `TV.rebuild(r?, c?)` | Re-read `nav()` after the view's content changes (optionally move focus). |
 | `TV.addTab(label, viewName)` | Adds a top-bar tab that opens a view. |
-| `TV.addRow(fn)` + `TV.refresh()` | `fn()` returns `{title, items}` or `null`; shown after Continue watching. |
+| `TV.addRow(fn)` + `TV.refresh()` | `fn()` returns `{title, items}` or `null`; shown after Continue watching. A row with something to show triggers one rebuild after the features have loaded. |
+| `TV.seen` | `has(item)`, `skipped(item)`, `mark(item, on)`, `skip(item, on)`, `list()` (the titles marked as seen), `merge({"movie:603": time})` (keys learnt elsewhere), `onChange(fn(item, on))`. |
+| `TV.watchlist` | `list()`, `has(item)`, `put(item, on, quiet?)` (quiet: do not tell the listeners), `onChange(fn(item, on))`. |
+| `TV.setContinue(cards)`, `TV.itemDetails(item)` | The Trakt part of Continue watching (cards with `at`, `cont`, `cap`); the details page for a held card. |
+| `TV.onOpened = fn(item)` | Called when a title is opened from this screen (used for the "Seen it?" question). |
 | `TV.itemOk = fn(item)` | Called on OK for any title card / hero. Default `TV.openItem(item)` (open the service). |
 | `TV.onAvatar = fn()` | What the avatar does (default: quick settings panel). |
-| `TV.addSetting(row, default)` | Adds a row to the Settings panel: `{key, title, hint?, many?, opts: [[value, label]…]}`. Value lands in `TV.S[key]`. |
+| `TV.addSetting(row, default)` | Adds a row to the Settings panel: `{key, title, hint?, many?, opts: [[value, label]…]}`. Value lands in `TV.S[key]`. With `action: fn(value)` the row does something instead (opens a view). |
 | `TV.tmdb(path, q)`, `TV.get(url)`, `TV.fromTmdb(m, svc?)`, `TV.svcFor(providerName)` | Data helpers. Items look like `{title, sub, meta, img, bg, blur, src, svc, tmdb: {type, id}}`. |
 | `TV.launch(appId, params)`, `TV.luna(uri, params)`, `TV.toast(msg)`, `TV.card(item)`, `TV.el`, `TV.esc` | UI / system helpers. |
 | `TV.store(key[, value])` | Per-profile JSON storage. |

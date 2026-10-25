@@ -25,7 +25,7 @@
   var KB = {azerty: ['azertyuiop', 'qsdfghjklm', 'wxcvbn'], qwerty: ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'], abc: ['abcdefghijklm', 'nopqrstuvwxyz']};
   var NAME_MAX = 12;
   // what a profile stores that is not under its own prefix (the first profile, "default", keeps the keys of before profiles existed)
-  var DEFAULT_KEYS = ['settings', 'homeCache', 'recent', 'watchlist', 'appHidden', 'appOrder', 'weatherLoc', 'hintEdit'];
+  var DEFAULT_KEYS = ['settings', 'homeCache', 'recent', 'watchlist', 'appHidden', 'appOrder', 'weatherLoc', 'hintEdit', 'seen', 'skipped', 'syncedKeys', 'pending', 'trakt', 'traktSync', 'traktOut'];
 
   window.addEventListener('tvready', function () {
     var TV = window.TV, quick = TV.onAvatar;

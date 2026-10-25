@@ -4,3 +4,5 @@ keys.js
 .claude/
 
 tools/tv-service/events.json
+# viewing history imported from a streaming service (see tools/import-viewing-activity.mjs)
+seen-import.js
