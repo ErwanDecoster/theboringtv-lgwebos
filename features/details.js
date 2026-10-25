@@ -5,6 +5,48 @@
   var box = TV.el('div'), stack = [], cache = {}, origin = null;
   box.id = 'details'; box.hidden = true;
   document.body.appendChild(box);
+  // The page is redrawn whenever its content changes (opened, then the data arrives, then a buttons change): its background must not be, or the picture would be
+  // replaced each time. Two layers of their own sit under the page; a new picture is put on the idle layer and fades in (opacity only) over the one already there.
+  var bgs = TV.el('div', 'dbgs'), L = [TV.el('div', 'dbgl'), TV.el('div', 'dbgl')], page = TV.el('div', 'dpage'), front = -1, shownKey = '', askedKey = '', seq = 0;
+  L.forEach(function (w) { bgs.appendChild(w); });
+  box.appendChild(bgs); box.appendChild(page);
+  // instant: no fade (a page opened from the home screen has nothing under it yet: the first picture must be there at once, not fade in from black)
+  function showLayer(node, key, my, instant) {
+    if (my !== seq) return;                       // another title was asked for meanwhile
+    var bi = front === 0 ? 1 : 0, back = L[bi], cur = front >= 0 ? L[front] : null;
+    back.style.transition = 'none'; back.classList.remove('on'); back.style.zIndex = 1; if (cur) cur.style.zIndex = 0;   // the idle layer is under the shown one: resetting it is invisible
+    back.textContent = ''; node.className = 'dbg'; back.appendChild(node);
+    void back.offsetWidth; back.style.transition = instant ? 'none' : ''; back.classList.add('on');
+    front = bi; shownKey = key;
+  }
+  var sharpFor = 0, lastIt = null;                // sharpFor: the request whose sharp picture is already up (a late blurred one must not replace it)
+  function blurPut(it, my, instant) {
+    return TV.blurredBg(it).then(function (k) {
+      if (sharpFor === my || my !== seq || shownKey === 'blur:' + it.blur) return;
+      showLayer(k, 'blur:' + it.blur, my, instant);
+    }, function () { /* no picture at all for this title */ });
+  }
+  // The sharp picture if the title has one (see MIN_FULL in app.js), else its art blurred. What is already on screen stays until the new picture is ready.
+  // On a fresh page (opened from the home screen) the blurred art goes up at once, never a bare dark page, and the sharp picture fades in over it when it is ready;
+  // The page is redrawn several times for one title (opened, data arrived, a button changed):
+  // only a different title cancels what is pending, the same one asking again does not, or each redraw would restart the wait.
+  function setBg(it) {
+    if (it !== lastIt) { lastIt = it; seq++; sharpFor = 0; }
+    var my = seq, url = TV.fullBg(it), key = url || 'blur:' + (it.blur || '');
+    if (key === shownKey || key === askedKey) return;
+    askedKey = key;
+    var fresh = front < 0;
+    if (!url) return blurPut(it, my, fresh);
+    // Always the blurred art first when the page is fresh, at once, whatever state the sharp picture is in: loaded is not decoded, and a 4K picture that has arrived
+    // but is not decoded yet paints nothing (a dark page) for a moment. The sharp picture fades in over the blur once it is decoded.
+    var blurUp = fresh ? blurPut(it, my, true) : Promise.resolve();   // the sharp one waits for it, so it always fades in over the blur and never from a dark page
+    var im = new Image();
+    im.alt = ''; im.decoding = 'async';
+    im.src = url;
+    var decoded = im.decode ? im.decode() : new Promise(function (ok, no) { im.onload = ok; im.onerror = no; });
+    decoded.then(function () { return blurUp; }).then(function () { sharpFor = my; showLayer(im, key, my, false); }, function () { blurPut(it, my, front < 0); });
+  }
+  function clearBg() { seq++; front = -1; shownKey = ''; askedKey = ''; lastIt = null; L.forEach(function (w) { w.style.transition = 'none'; w.classList.remove('on'); w.textContent = ''; }); }
 
   // ---------- watchlist ----------
   var list = TV.store('watchlist') || [];
@@ -32,26 +74,44 @@
   // ---------- data ----------
   function load(it) {
     var k = it.tmdb.type + '/' + it.tmdb.id;
-    if (!cache[k]) cache[k] = TV.tmdb(k, '&append_to_response=credits,videos,watch/providers,recommendations')
+    if (cache[k] && !cache[k].then) return Promise.resolve(cache[k]);   // already loaded: the cache then holds the data itself, not the promise
+    if (!cache[k]) cache[k] = TV.tmdb(k, '&append_to_response=credits,videos,watch/providers,recommendations,images&include_image_language=null')
       .then(function (d) { return (cache[k] = d); }, function (e) { delete cache[k]; throw e; });
     return cache[k];
   }
+  // Ahead of the click: the focused card's details page is fetched as soon as the focus rests on it (not while a key is held, not for every card swept past):
+  // the data, then the full-size backdrop (or nothing if it has none sharp enough), so OK finds both already there.
+  var warmPics = [];
+  function prefetch(it) {
+    if (!it || !it.tmdb || it.src === 'YouTube') return;
+    load(it).then(function (d) {
+      if (d.images) TV.noteBackdrops(it, d.images.backdrops);
+      var u = TV.fullBg(it);
+      if (!u) return;
+      var im = new Image(); im.decoding = 'async'; im.src = u;   // into the browser's cache, and decoded now (a 4K picture paints nothing until it is): a few are kept referenced
+      if (im.decode) im.decode().catch(function () { /* the page decodes it again */ });
+      warmPics.push(im); if (warmPics.length > 3) warmPics.shift();
+    }, function () { /* the page asks again when it is opened */ });
+  }
+  TV.prefetchDetails = prefetch;
   function names(a) { return (a || []).map(function (p) { return p.provider_name; }).filter(function (n, i, all) { return all.indexOf(n) === i; }); }
 
   // ---------- render ----------
   function btn(label, fn) { var b = TV.el('span', 'dbtn f', label); b.onok = fn; return b; }
   function render(it, d) { // d = TMDB details (or null while loading)
-    var bg = d && d.backdrop_path ? TV.IMG + 'w1280' + d.backdrop_path : it.bg, meta = it.meta, cast = '', extra = '';
+    if (d && d.images) TV.noteBackdrops(it, d.images.backdrops);
+    var meta = it.meta, cast = '', extra = '';
     if (d) {
       var len = d.runtime ? Math.floor(d.runtime / 60) + 'h ' + d.runtime % 60 + 'm'
         : d.number_of_seasons ? d.number_of_seasons + (d.number_of_seasons > 1 ? ' seasons' : ' season') : '';
       meta = [meta, len, (d.genres || []).slice(0, 3).map(function (g) { return g.name; }).join(', ')].filter(Boolean).join('  ·  ');
       cast = (d.credits && d.credits.cast || []).slice(0, 6).map(function (c) { return c.name; }).join(', ');
     }
-    box.innerHTML = '<img class="dbg" alt="" decoding="async"' + (bg ? ' src="' + bg + '"' : '') + '><div class="dshade"></div>' +
+    page.innerHTML = '<div class="dshade"></div>' +
       '<div class="dbody"><div class="dsrc">' + esc(it.src) + '</div><h1>' + esc(it.title) + '</h1><div class="dmeta">' + esc(meta) + '</div>' +
       '<p class="dsub">' + esc(d ? d.overview || it.sub : it.sub) + '</p>' + (cast ? '<div class="dcast">Cast: ' + esc(cast) + '</div>' : '') +
       '<div class="dbtns"></div><div class="dextra"></div></div>';
+    setBg(it);
     var btns = box.querySelector('.dbtns');
     if (d) {
       var reg = (d['watch/providers'] || {}).results || {}, here = reg[TV.C.REGION] || {}, seen = {};
@@ -93,7 +153,7 @@
     if (recs && recs.length) {
       var more = TV.el('section', 'dmore', '<h3>More like this</h3>'), strip = TV.el('div', 'strip');
       recs.forEach(function (m) { strip.appendChild(TV.card(Object.assign(TV.fromTmdb(m), {src: 'Because you viewed ' + it.title}))); });
-      more.appendChild(strip); box.appendChild(more);
+      more.appendChild(strip); page.appendChild(more);
     }
   }
   function show(it) {
@@ -109,7 +169,7 @@
     stack.pop();
     var prev = stack[stack.length - 1];
     var d = prev && cache[prev.tmdb.type + '/' + prev.tmdb.id];
-    if (prev) render(prev, d && !d.then ? d : null); else { box.hidden = true; box.innerHTML = ''; }
+    if (prev) render(prev, d && !d.then ? d : null); else { box.hidden = true; page.innerHTML = ''; clearBg(); }
   }
 
   TV.addView('details', {

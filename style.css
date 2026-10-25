@@ -52,10 +52,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 #heroSub { font-size: 24px; color: #dadce0; line-height: 1.4; max-height: 68px; overflow: hidden; width: 860px; }
 #heroBtn { display: inline-block; margin-top: 26px; padding: 14px 34px; border-radius: 30px; font-size: 24px; font-weight: 500;
   background: rgba(232,234,237,.16); color: #e8eaed; transition: background .15s, color .15s, transform .15s; }
-#dots { position: absolute; left: 1776px; top: 560px; white-space: nowrap; transform: translateX(-100%); } /* right edge on the 72px margin of the rows */
-#dots i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.35);
-  margin-left: 10px; transition: width .3s, background .3s; }
-#dots i.on { width: 28px; background: #fff; }
+#dots { display: none; }   /* the featured title rotates by itself: the dots were not something to aim at */
 .scrolled #hero { opacity: 0; }
 
 /* rows */
@@ -154,6 +151,9 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
   font-size: 26px; background: #3c4043; transition: background .15s, color .15s, transform .15s; }
 #sclose.focus { background: #fff; color: #202124; transform: scale(1.08); }
 
+/* The two blurred layers swap their z-index while one fades in over the other. Loose in the page, that swap crossed the dark veil (#shade): the layer in
+   front sat above it, the one underneath below it, so each change dipped to the shaded picture and back. In their own stacking context they stay together. */
+#blurs { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 /* scrolled: small blurred copy of the art (cheap: 300px source, only redrawn when it changes) */
 #bgBlur, #bgBlur2 { position: fixed; top: -60px; left: -60px; width: calc(100% + 120px); height: calc(100% + 120px);
   /* a 128x72 canvas, already blurred (see bake in app.js), stretched by the browser: a fade is only an opacity change */

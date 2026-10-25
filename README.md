@@ -52,6 +52,10 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 - **Search:** AZERTY / QWERTY / ABC keyboard, a clear button, and **voice dictation** with the TV's own microphone (see below).
 - **A real "seen" list:** mark titles as seen or "not interested", get asked "Seen it?" after you come back from a streaming app, optional **Trakt** sync, and an import of the
   history you download from a streaming service. Seen titles are never suggested again (see [Watch history](#watch-history-seen-trakt-import)).
+- **Sharp pictures, or none:** a picture that fills the screen must be at least 2560 px wide, otherwise the title only appears as a card (see [Pictures](#pictures-sharp-or-none)).
+  The featured title goes straight to TMDB's full-size file, the details page fades from a blurred copy to the sharp picture, and it starts loading while you rest on a card.
+- **A calmer first view:** the hero is the title, one line (year, type, rating), the synopsis and one button ("View details", which is what OK really does); no pagination dots, no "because you
+  watched…" line (its space is kept); the focus starts on the first app, one press from the apps; the round profile button only appears when there are several profiles.
 - **Home Assistant washing machine pill** next to the weather (optional).
 - **Profiles:** free-text names with the on-screen keyboard, delete confirmation, "who is watching?" asked once per session.
 - **Screen off** that really works from the quick settings, and a power-off that is instant (see the field notes).
@@ -71,7 +75,9 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 - **Quick settings panel:** Wi-Fi, audio output, Bluetooth, volume, screensaver, inputs, picture and sound mode, brightness, screen off.
 - **Seen / not interested:** two more buttons on the details page; the "Recently finished" row; the suggestions learn from what you saw.
 - **Profiles:** each has its own settings, watchlist and history, plus a kids profile (family-friendly titles, some apps hidden).
-- **Ambient mode:** a slideshow of artwork with the clock when the TV is idle.
+- **Ambient mode:** a slideshow of artwork (only pictures sharp enough, full-size by default; Settings → Picture quality keeps the lighter ones) with the clock in bold, the date and the weather when the TV is idle.
+  Any key leaves it; OK (or a pointer click, without moving the pointer) opens the details page of the title on screen. The "Screensaver" tile of the quick settings starts it
+  (it used to start LG's own screensaver app, which did not hand the remote back reliably).
 
 ## Setup
 1. Copy `keys.example.js` to `keys.js` and add a free TMDB API key and a YouTube Data API v3 key (the optional
@@ -206,6 +212,16 @@ mono, raw); `tools/tv-service` streams it over `GET /mic`.
 
 **9. Slow start was not script parsing.** It was the loading screen waiting for the network, then the cost of the first frame and of the translator. See Performance.
 
+**10. Two layers swapping a z-index crossed a dark veil.** The blurred background behind the rows is two layers that fade into each other by swapping `z-index` 1 / 0. The dark veil between the home screen and its rows had a neutral
+level, so the layer in front sat above it and the one underneath below it: every change dipped to the shaded picture and back. Measured by recording the screen (the opacities were fine): two identical grey pictures went from
+luminance 119 to 48 and back. The two layers now live in a stacking context of their own, together above the veil (the same trick keeps the details page's background layers under its text).
+
+**11. Rows registered by a feature were missing when the cached screen was unchanged.** The home screen is first drawn from its cache, before the features have registered their rows (watchlist, recently finished), and
+is not rebuilt when the fresh data equals the cache, so those rows only appeared after the next change. The Apps page had the same flaw (its grid was built before the app list had loaded: one tile). Both are rebuilt once
+the missing piece is known.
+
+**12. LG's screensaver app does not hand the remote back reliably.** The quick-settings tile used to launch `com.webos.app.screensaver`; the app then could not always be left. The tile now starts TV Home's own ambient mode.
+
 ## Voice dictation (optional)
 The search keyboard has a microphone key. The page reads the TV's microphone from the helper service, cuts a sentence at the silence, and sends it to
 a speech-to-text endpoint, then snaps the answer to the closest title it knows (a mis-heard title is corrected). Two backends, set in `keys.js` (see `keys.example.js`):
@@ -228,6 +244,8 @@ What we found and did (LG C4, relaunch with the cached home):
 - GPU memory: only the row being moved gets `will-change: transform` (a long row is ~14000 px wide); the Apple theme creates its focus sheen and shadow only on the focused tile and uses
   almost opaque panels instead of `backdrop-filter`.
 - Timers (clock, weather, washer) stop while the page is in the background; webOS keeps it alive after Home.
+- Full-size pictures cost: a 3840x2160 backdrop is ~33 MB once decoded. They are fetched and decoded only for the picture that rests on screen (and the details page of the card that rests), never while a key is held,
+  and the old layer stays under the new one instead of being hidden on a timer (a fixed timer raced the CSS fade on the slow CPU and showed a dark frame).
 
 ## Rooted extras: real apps, picture and sound, inputs, remote control
 With the helper service running (rooted TV), the page gets what a normal app can't. The service runs as root and calls a fixed list of system methods,
@@ -248,6 +266,19 @@ tools/tv picture cinema   # backlight 0-100, sound movie, screen-off, home, off,
 For Home Assistant, its built-in **LG webOS Smart TV** integration already controls power, volume, inputs and apps
 over the TV's own network API, with no root needed. Use `tools/tv` (from a shell command) for the extras.
 The optional washing machine pill reads three Home Assistant entities over its WebSocket (`HA_WASHER` in `keys.js`); the token never leaves `keys.js`.
+
+## Pictures: sharp, or none
+The TV page is drawn at 1920x1080 (device pixel ratio 1; the TV scales it to its 4K panel), so a picture that fills the screen is sampled from the file you give it: a 1280 px backdrop is
+visibly soft there. TMDB holds backdrops from 1280 to 3840 px, and many titles (a lot of anime) only have the small ones. What the app does:
+- **A rule:** a full-screen picture (featured title, ambient slideshow, details page, "Seen it?" page) needs at least `MIN_FULL = 2560` px of width (constant in `app.js`). For each title the app asks TMDB once
+  for its text-free backdrops, keeps the widest, and remembers `{path, width}` for 30 days (`localStorage.bgBest.v2`). A title with none that wide is shown as a card only.
+- **Featured titles** are the first six of "Picked for you" that pass; the others stay in the row. At start the first picture is the 1280 px one (light and sharp enough) and the original fades in over it; the next featured titles load the original directly.
+  Hovering a card at the top of the page does the same after the focus has rested for a second; holding an arrow key never loads these big files.
+- **Details page:** two background layers of their own, under the page. A picture is put on the idle layer and fades in (opacity only, 0.95 s) over the one already there. Opened from the home screen, the blurred art
+  of the card (already prepared for the rows) goes up at once, and the sharp picture fades in over it once it is **decoded** (a 4K picture that has arrived but is not decoded paints nothing). A title with no sharp
+  picture keeps the blurred art. While you rest on a card its details (and the picture, decoded) are fetched ahead, so OK finds them.
+- **Settings → Picture quality:** High (default) uses TMDB's original; Standard keeps the 1280 px files (lighter on a weak TV or network).
+- Not covered: the app icons (the TV gives 130 px copies for 150 px tiles).
 
 ## Watch history: seen, Trakt, import
 **What the app can and cannot know.** Netflix, Prime Video, Disney+ and the other streaming apps have no public interface that tells another app what you
@@ -355,6 +386,7 @@ Ids are cached on the TV. If a lookup finds nothing or takes too long, the app j
 - Deep links need each service's own title id, so a title opens the app's home when no id is found (Prime Video and JioHotstar lookups also need upstream's `service/` running).
 - The Prime Video lookup reads Prime's public search page, so it can break whenever Amazon changes that page.
 - The app can't read LG Channels' channel list or Netflix/Hotstar watch history.
+- The page is rendered at 1920x1080 (the TV scales it to 4K): sharp 4K files help, but the interface itself is not drawn in 4K.
 - Tested on one TV model and firmware. `defaultApps`, `lgLogoDisplay` and the init.d timing may differ on other webOS versions: check the ARC state and the power-off phases as above.
 
 ## Credits
@@ -387,6 +419,8 @@ Each feature lives in `features/<name>.js` + `features/<name>.css` and only talk
 | `TV.tmdb(path, q)`, `TV.get(url)`, `TV.fromTmdb(m, svc?)`, `TV.svcFor(providerName)` | Data helpers. Items look like `{title, sub, meta, img, bg, blur, src, svc, tmdb: {type, id}}`. |
 | `TV.launch(appId, params)`, `TV.luna(uri, params)`, `TV.toast(msg)`, `TV.card(item)`, `TV.el`, `TV.esc` | UI / system helpers. |
 | `TV.store(key[, value])` | Per-profile JSON storage. |
+| `TV.fullOk(item)`, `TV.fullBg(item)`, `TV.noteBackdrops(item, backdrops)`, `TV.blurredBg(item)` | Full-screen pictures: does the title have a sharp one (see Pictures), its URL (or `''`), record TMDB's backdrop list for it, a `<canvas>` of its blurred art for a page that has no sharp picture. |
+| `TV.prefetchDetails(item)` | Fetch a title's details and its decoded picture ahead (what the details page uses when a card rests). |
 | `TV.heroItems()`, `TV.view()`, `TV.idleSince()`, `TV.setBg(url)`, `TV.S`, `TV.C`, `TV.LANGS`, `TV.IMG` | State. |
 | `window.TV_PROFILE = {prefix, name, color, extraQ, hideApps}` | Set by `profiles.js` before `app.js` runs: storage prefix, avatar, extra TMDB discover query (e.g. kids certification), app ids to hide. |
 | `tvready` event on `window` | Fired once `window.TV` exists (for `profiles.js`, which loads first). |

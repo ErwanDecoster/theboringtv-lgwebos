@@ -29,9 +29,11 @@
   function btn(label, how) { var b = TV.el('span', 'dbtn f', label); b.onok = function () { answer(how); }; return b; }
   function render(it) {
     cur = it;
-    box.innerHTML = '<img class="dbg" alt="" decoding="async"' + (it.bg ? ' src="' + esc(it.bg) + '"' : '') + '><div class="dshade"></div>' +
+    var bg = TV.fullBg(it);   // a sharp picture or none
+    box.innerHTML = '<img class="dbg" alt="" decoding="async"' + (bg ? ' src="' + esc(bg) + '"' : '') + '><div class="dshade"></div>' +
       '<div class="dbody"><div class="dsrc">Seen it?</div><h1>' + esc(it.title) + '</h1>' +
       '<p class="tsub">You opened it a while ago. Did you watch it?</p><div class="dbtns"></div></div>';
+    if (!bg) TV.blurredBg(it).then(function (k) { var im = box.querySelector('.dbg'); if (im && im.nodeName === 'IMG' && cur === it && !im.getAttribute('src')) { k.className = 'dbg'; im.parentNode.replaceChild(k, im); } }, function () { /* none */ });
     var b = box.querySelector('.dbtns');
     b.appendChild(btn('✓ Yes, I saw it', 'yes')); b.appendChild(btn('Not finished', 'part'));
     b.appendChild(btn('✕ Not interested', 'no')); b.appendChild(btn('Ask me later', 'later'));

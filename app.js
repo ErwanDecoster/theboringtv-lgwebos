@@ -24,7 +24,7 @@
   var COUNTRIES = [['IN', 'India'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['AE', 'UAE'],
     ['SG', 'Singapore'], ['DE', 'Germany'], ['FR', 'France'], ['JP', 'Japan'], ['KR', 'South Korea'], ['BR', 'Brazil']];
   var S = {region: C.REGION, langs: ['fr'], services: C.SERVICES.filter(function (x) { return x.on; }).map(function (x) { return x.name; }),
-    youtube: true, autoplay: true, clock24: true, weatherCity: (window.KEYS || {}).WEATHER_CITY || 'Paris', iconShape: 'circle', mergeRows: true, newRow: true, liveTab: true, profileBtn: true, uiLang: 'fr', theme: 'google'};
+    youtube: true, autoplay: true, hqImages: true, clock24: true, weatherCity: (window.KEYS || {}).WEATHER_CITY || 'Paris', iconShape: 'circle', mergeRows: true, newRow: true, liveTab: true, profileBtn: true, uiLang: 'fr', theme: 'google'};
   Object.assign(S, store('settings') || {});
   document.body.classList.toggle('shape-rounded', S.iconShape === 'rounded');
   // Settings → Theme; "?theme=tvos" in the address overrides it (handy for previews in a browser)
@@ -342,6 +342,46 @@
     if (window.TV && window.TV.onOpened) window.TV.onOpened(keep);
     buildRows();
   }
+  // Full-screen pictures. A picture that fills the screen must be sharp: it needs at least MIN_FULL pixels of width (the TV is 1080p, but below that the
+  // art is visibly soft once stretched, and TMDB holds many 1280 or 1920 px backdrops). For each title we ask TMDB once for all its text-free backdrops, keep the widest,
+  // and remember {path, w} for 30 days. A title with no backdrop that wide is never shown full-screen (hero, ambient slideshow, details page): only as a card.
+  var BEST_KEY = 'bgBest.v2', BEST_TTL = 30 * 864e5, MIN_FULL = 2560, best = null;
+  function bestMap() { if (!best) { try { best = JSON.parse(localStorage.getItem(BEST_KEY) || '{}'); } catch (e) { best = {}; } } return best; }
+  function bkey(it) { return it.tmdb.type + ':' + it.tmdb.id; }
+  function info(it) { var e = it && it.tmdb && bestMap()[bkey(it)]; return e && e.at ? e : null; }
+  function fullOk(it) { var e = info(it); return !!(e && e.path && e.w >= MIN_FULL); }
+  function useBest(it, path) { it.bg = IMG + 'w1280' + path; it.blur = IMG + 'w154' + path; }
+  function applyBest(list) { (list || []).forEach(function (it) { var e = info(it); if (e && e.path) useBest(it, e.path); }); }
+  function saveBest() { try { localStorage.setItem(BEST_KEY, JSON.stringify(bestMap())); } catch (e) { /* storage full: asked again next time */ } }
+  // the widest text-free backdrop among TMDB's list (details.js passes the list it already has)
+  function noteBackdrops(it, list) {
+    var top = (list || []).filter(function (b) { return !b.iso_639_1; }).sort(function (a, b) { return b.width - a.width || b.vote_average - a.vote_average; })[0];
+    var e = bestMap()[bkey(it)] = {path: top ? top.file_path : null, w: top ? top.width : 0, at: Date.now()};
+    if (e.path) useBest(it, e.path);
+    return e;
+  }
+  // the picture to put full-screen for a title: TMDB's full-size file (or the 1280 one when Settings → Picture quality says Standard), or '' when none is good enough
+  function fullBg(it) {
+    var e = info(it);
+    if (!e || !e.path || e.w < MIN_FULL) return '';
+    return IMG + (S.hqImages !== false ? 'original' : 'w1280') + e.path;
+  }
+  // the slideshow draws from every card: learn their pictures quietly, a few at a time, once the home screen is up (answers are kept 30 days)
+  var prefetched = false;
+  function prefetchBest() {
+    if (prefetched) return; prefetched = true;
+    var items = []; base.forEach(function (row) { (row.items || []).forEach(function (it) { if (it.tmdb) items.push(it); }); });
+    refineBest(items.slice(0, 120)).then(function () { applyBest(items); });
+  }
+  function refineBest(list) {
+    var m = bestMap(), todo = (list || []).filter(function (it) { var e = info(it); return it.tmdb && (!e || Date.now() - e.at > BEST_TTL); });
+    return pool(todo, 4, function (it) {
+      return tmdb(it.tmdb.type + '/' + it.tmdb.id + '/images', '&include_image_language=null').then(function (r) {
+        noteBackdrops(it, r.backdrops);
+        if (heroItems[heroIdx] === it && view === 'home') showHero();
+      });
+    }).then(saveBest);
+  }
   // Seen / not interested: what the recommendations must not suggest again. `seen` holds the titles you marked (with what a card needs),
   // `synced` the keys ("movie:603") that came from Trakt or an import (no card data), `skipped` the titles you said you are not interested in.
   var seen = store('seen') || [], skipped = store('skipped') || [], synced = store('syncedKeys') || {}, seenListeners = [];
@@ -569,6 +609,12 @@
       root.appendChild(makeRow(later.shift()));
       if (later.length) setTimeout(addNext, 0); else buildNav();
     }, 0); });
+    buildGrid();
+    buildNav();
+  }
+  // The Apps tab. Built apart from the rows: the home screen is first drawn from the cache, before the list of apps has loaded, and is not
+  // rebuilt when the fresh data equals the cache, so the grid must be built again once the apps are known.
+  function buildGrid() {
     var g = el('div');   // built apart and translated in one go, then moved into #grid
     var shown = visibleApps(), hid = hiddenApps();
     if (editing) {
@@ -586,7 +632,6 @@
     var grid = $('grid'); grid.innerHTML = '';
     while (g.firstChild) grid.appendChild(g.firstChild);
     renderEditBar();
-    buildNav();
   }
 
   var SROWS = [
@@ -597,9 +642,10 @@
     {key: 'mergeRows', title: 'Streaming rows', hint: 'Services with similar catalogues (Netflix, Disney+, Canal+...) in one row; Crunchyroll and YouTube keep their own', opts: [[true, 'Similar services together'], [false, 'One row per service']]},
     {key: 'newRow', title: 'New on your services row', hint: 'Recent releases included in your subscriptions', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'youtube', title: 'Trending on YouTube row', opts: [[true, 'On'], [false, 'Off']]},
+    {key: 'hqImages', title: 'Picture quality', hint: 'High brings in the full-size pictures behind the home screen and in the ambient slideshow: sharper, a little slower to load. Standard keeps the lighter ones', opts: [[true, 'High'], [false, 'Standard']]},
     {key: 'autoplay', title: 'Rotate featured titles', opts: [[true, 'On'], [false, 'Off']]},
     {key: 'liveTab', title: 'Live TV tab', hint: 'The Live tab at the top of the home screen', opts: [[true, 'Show'], [false, 'Hide']]},
-    {key: 'profileBtn', title: 'Profile button', hint: 'The round button at the top of the home screen; profiles stay available from the quick settings', opts: [[true, 'Show'], [false, 'Hide']]},
+    {key: 'profileBtn', title: 'Profile button', hint: 'The round button at the top of the home screen. Auto: shown only when there are several profiles. Profiles stay available from the quick settings', opts: [[true, 'Auto'], [false, 'Hide']]},
     {key: 'clock24', title: 'Clock', opts: [[false, '12-hour'], [true, '24-hour']]},
     {key: 'theme', title: 'Theme', hint: 'The look of the home screen', opts: [['google', 'Google TV'], ['tvos', 'Apple TV']]},
     {key: 'iconShape', title: 'App icon shape', hint: 'A full circle, or a square with rounded corners', opts: [['circle', 'Circle'], ['rounded', 'Rounded square']]},
@@ -628,11 +674,16 @@
     renderSettings(); $('spanel').hidden = $('sdim').hidden = false; pos.r = 1; pos.c = 0; mem = {}; view = 'settings'; buildNav();
   }
   var RELOAD_KEYS = ['region', 'langs', 'services', 'mergeRows', 'newRow', 'youtube', 'uiLang', 'weatherCity'];
+  // the round profile button is only useful with several profiles (the quick settings keep the way to add one)
+  function noAvatar() {
+    var n = 0; try { n = JSON.parse(localStorage.profiles || '[]').length; } catch (e) { /* no list: one profile */ }
+    return S.profileBtn === false || n <= 1;
+  }
   function applyLive() {
     document.body.classList.toggle('shape-rounded', S.iconShape === 'rounded');
     if (!themeParam) document.body.classList.toggle('theme-tvos', S.theme === 'tvos');
     document.querySelector('[data-act=live]').classList.toggle('off', S.liveTab === false);
-    $('avatar').classList.toggle('off', S.profileBtn === false);
+    $('avatar').classList.toggle('off', noAvatar());
     tick();
   }
   // `back`: the Back key (one step back, to the quick settings if that is where we came from); otherwise the X button (close everything).
@@ -724,7 +775,12 @@
       tip: openSettingsFromQuick,
       close: closeQuick,
       profile: function () { closeQuick(); TV.onAvatar(); },   // the round button of the panel: who is watching
-      screensaver: function () { launch('com.webos.app.screensaver'); },
+      // TV Home's own idle screen (clock, date, weather, sharp pictures; any key leaves it, OK opens the title). LG's screensaver app, which this tile used to launch,
+      // does not hand the remote back reliably, so it is not used here.
+      screensaver: function () {
+        closeQuick();
+        setTimeout(function () { if (!(TV.ambientNow && TV.ambientNow())) toast('Pictures are still loading'); }, 250);
+      },
       // webOS 25 has no visible inputcommon window (it is a transparent native card: a black screen). Its input picker is the
       // overlay app quickinputpicker; keep inputcommon for firmware that does not have it.
       inputs: function () {
@@ -792,15 +848,44 @@
   // A change of picture is one cross-fade. This used to show the small picture first and then swap the full-size one into the layer already on
   // screen (`img.src = ...`): a pop from blurry to sharp on every card hovered, which looked like a blink as soon as the network was slow.
   function makeFader(a, b, load) {
-    var front = b, shown, sharp = true, wanted, wantedLow, busy = false;   // sharp: what is on screen is the full-size picture
+    var front = b, shown, sharp = true, wanted, wantedLow, wantedHi, hiDone, hiT = 0, busy = false;   // sharp: what is on screen is the full-size picture
+    // The old layer is NOT hidden when the new one has faded in: it stays under it (the new one is opaque) and is reset only when it is reused.
+    // Hiding it on a timer raced the CSS fade: on a slow CPU the fade can start late, and the old layer vanished halfway, showing a dark frame.
+    // The next change waits for the fade to be over (its end event, or a safety timer), then goes on.
+    function whenFaded(layer, fn) {
+      var done = false, t = 0;
+      function end(e) { if (done || (e && (e.target !== layer || e.propertyName !== 'opacity'))) return; done = true; clearTimeout(t); layer.removeEventListener('transitionend', end); fn(); }
+      layer.addEventListener('transitionend', end);
+      t = setTimeout(end, FADE_MS + 700);
+    }
     function finish(src, back, cur, isSharp) {
-      setTimeout(function () {
-        cur.style.transition = 'none'; cur.className = ''; cur.style.zIndex = 0;
-        busy = false; front = back; shown = src; sharp = isSharp; go();
-      }, FADE_MS + 40);
+      whenFaded(back, function () { busy = false; front = back; shown = src; sharp = isSharp; go(); scheduleHi(); });
+    }
+    // The picture is on screen and nobody has moved for a moment: fade to the full-size version (TMDB's original, often 3840x2160) behind it. It is only
+    // fetched when the picture rests, so holding an arrow key never loads these big files, and the first change is as quick as before.
+    function scheduleHi() {
+      clearTimeout(hiT);
+      if (!wantedHi || wantedHi === wanted || hiDone === wantedHi || wanted !== shown || !sharp) return;
+      hiT = setTimeout(upgradeHi, 1100);
+    }
+    function upgradeHi() {
+      var hi = wantedHi, key = wanted;
+      if (!hi || busy || key !== shown || !sharp || hiDone === hi) return;
+      busy = true;
+      var back = front === a ? b : a, cur = front;
+      back.style.transition = 'none'; back.className = ''; back.style.zIndex = 1; cur.style.zIndex = 0;
+      load(back, hi).then(function () {
+        if (wanted !== key) { busy = false; return go(); }   // moved on while it loaded
+        back.style.transition = 'none'; back.style.opacity = '.01'; back.className = 'on';
+        requestAnimationFrame(function () { requestAnimationFrame(function () {
+          void back.offsetWidth; back.style.transition = ''; back.style.opacity = '';
+          whenFaded(back, function () { busy = false; front = back; hiDone = hi; go(); });
+        }); });
+      }, function () { busy = false; hiDone = hi; go(); });   // not available: keep the usual one
     }
     function go() {
       if (busy || (wanted === shown && sharp)) return;
+      clearTimeout(hiT);
       var src = wanted, upgrade = wanted === shown;                        // only the small picture is up: fade to the full-size one
       // The small picture is only for the very first background (nothing to keep on screen yet): after that the previous picture stays up until
       // the full-size one is ready, so a change is one clean fade and never blurry-then-sharp.
@@ -820,17 +905,30 @@
       };
       load(back, first).then(reveal, giveUp);
     }
-    return {show: function (src, low) { wanted = src; wantedLow = low; go(); }};
+    return {show: function (src, low, hi) { wanted = src; wantedLow = low; wantedHi = hi; go(); scheduleHi(); }};
   }
-  var bgFader = makeFader($('bgA'), $('bgB'), loadImg), blurFader = makeFader($('bgBlur'), $('bgBlur2'), loadBlur);
+  // the full-size picture, or the lighter one when it cannot be had
+  function loadBg(layer, src) {
+    return loadImg(layer, src).catch(function () {
+      var small = src.replace('/t/p/original/', '/t/p/w1280/');
+      return small !== src ? loadImg(layer, small) : Promise.reject();
+    });
+  }
+  var bgFader = makeFader($('bgA'), $('bgB'), loadBg), blurFader = makeFader($('bgBlur'), $('bgBlur2'), loadBlur);
   function setBlur(src) { if (src && src !== lastBlur) { lastBlur = src; blurFader.show(src); } }
   // Swap backgrounds only once focus rests, so holding an arrow key doesn't decode/blur every card.
+  var detailTimer = 0, blurTimer = 0;
   function bgFor(it, scrolled) {
     clearTimeout(bgTimer);
     bgTimer = setTimeout(function () {
-      if (scrolled) setBlur(it && it.blur); else { var h = it || heroItems[heroIdx]; if (h) setBg(h.bg, h.blur); }
+      if (scrolled) setBlur(it && it.blur); else { var h = it && fullOk(it) ? it : heroItems[heroIdx]; if (h) setBg(h.bg, h.blur, h !== it); }
     }, 170);
     clearTimeout(warmTimer); warmTimer = setTimeout(warm, 150);
+    // the focused card's blurred art is what a details page will show first: ready within a moment of the focus, so OK finds it
+    clearTimeout(blurTimer); if (it && it.blur) blurTimer = setTimeout(function () { bakeAhead(it.blur); }, 60);
+    // what OK would open: the details page of the focused card, started once the focus has rested (see details.js)
+    clearTimeout(detailTimer);
+    if (it && it.tmdb) detailTimer = setTimeout(function () { if (window.TV && window.TV.prefetchDetails) window.TV.prefetchDetails(it); }, 450);
   }
   // The background is blurred, so the cards around the focus only need the small picture, fetched ahead of the move: the next press then
   // finds it cached. The focused card gets the full-size one (it is the one likely to be opened, and its sharp background shows at the top).
@@ -839,6 +937,32 @@
     if (!src || warmed[src]) return; warmed[src] = 1;
     var im = new Image(); im.src = src; warmKeep.push(im);
     if (warmKeep.length > 80) warmKeep.shift();
+  }
+  // For a title with no sharp full-screen picture (see MIN_FULL): its art blurred, as behind the rows of the home screen. A blur hides the softness of a small picture,
+  // so a page still has a background instead of a bare dark one. Resolves with a <canvas> to put where the picture goes (a copy: the baked one is shared; and a canvas
+  // fed by another site's picture cannot be exported as an image, but it can be drawn onto another canvas).
+  function blurredBg(it) {
+    if (!it || !it.blur) return Promise.reject(new Error('no picture'));
+    // The rows already prepared this blur for the focused card (see bake): reuse it, no network, so a page opened from the home screen has its background at once.
+    // That one is dimmed for the rows; lifted here, as the page has its own veil.
+    if (baked[it.blur]) return baked[it.blur].then(function (c) {
+      var k = document.createElement('canvas'), x = k.getContext('2d'); k.width = c.width; k.height = c.height;
+      if ('filter' in x) x.filter = 'brightness(1.5) saturate(1.1)';
+      x.drawImage(c, 0, 0);
+      return k;
+    });
+    return new Promise(function (resolve, reject) {
+      var im = new Image();
+      im.onload = function () {
+        var k = document.createElement('canvas'), x = k.getContext('2d'); k.width = 128; k.height = 72;
+        var pad = 10, W = 128 + pad * 2, H = 72 + pad * 2, f = Math.max(W / im.naturalWidth, H / im.naturalHeight), w = im.naturalWidth * f, h = im.naturalHeight * f;
+        if ('filter' in x) x.filter = 'blur(3px) saturate(1.35)';
+        x.drawImage(im, (128 - w) / 2, (72 - h) / 2, w, h);
+        resolve(k);
+      };
+      im.onerror = reject; im.src = it.blur;
+      if (im.complete && im.naturalWidth) im.onload();   // already in memory: no waiting for the event
+    });
   }
   function bakeAhead(src) { if (src) bake(src).catch(function () {}); }
   function warm() {
@@ -851,22 +975,33 @@
     });
   }
   // `low` (the small picture, usually cached by warm) shows straight away, then the full-size one replaces it once loaded.
-  function setBg(src, low) { if (src && src !== lastBg) { lastBg = src; bgFader.show(src, low); } }
+  // TMDB's full-size picture for a 1280 px one (the screen is 1920 wide, so the 1280 one is stretched by half); the setting "Picture quality" turns it off
+  function bigUrl(url) { return S.hqImages !== false && url && /\/t\/p\/w1280\//.test(url) ? url.replace('/t/p/w1280/', '/t/p/original/') : null; }
+  // direct: the featured title (it changes by itself, rarely) goes straight to the full-size picture; hovering cards starts light, then upgrades at rest
+  function setBg(src, low, direct) {
+    if (!src || src === lastBg) return;
+    lastBg = src;
+    var big = bigUrl(src);
+    // The first picture of all is shown while the full-size one loads: for the featured title the 1280 px one (light and sharp enough), never the 154 px blur
+    if (direct && big) bgFader.show(big, src, null); else bgFader.show(src, low, big);
+  }
   function showHero() {
     var it = heroItems[heroIdx]; if (!it) return;
-    $('heroSrc').textContent = it.src;
+    $('heroSrc').textContent = '';   // the "because you watched…" caption is gone; the empty line keeps the space it took (see #heroSrc in the stylesheets)
     $('heroTitle').textContent = it.title;
     $('heroMeta').textContent = it.meta || '';
     $('heroSub').textContent = it.sub || '';
-    $('heroBtn').textContent = it.svc ? 'Open in ' + it.svc.name : 'Where to watch';
-    $('dots').innerHTML = heroItems.map(function (_, i) { return '<i' + (i === heroIdx ? ' class="on"' : '') + '></i>'; }).join('');
-    setBg(it.bg, it.blur);
+    // what OK really does: a title opens its details page (where to watch is there); other items (YouTube) open their app
+    $('heroBtn').textContent = it.tmdb && it.src !== 'YouTube' ? 'View details' : it.svc ? 'Open in ' + it.svc.name : 'Where to watch';
+    setBg(it.bg, it.blur, true);
+    if (it.blur) bakeAhead(it.blur);   // for its details page (OK on the button)
+    clearTimeout(detailTimer); if (it.tmdb) detailTimer = setTimeout(function () { if (window.TV && window.TV.prefetchDetails) window.TV.prefetchDetails(it); }, 900);   // TV does not exist yet when the first hero is drawn
   }
   // The featured titles rotate on their own, slowly, until the first time someone steps through them by hand (or the TV asks for less motion).
   var heroAuto = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
-  function stepHero(d, auto) { if (!auto) heroAuto = false; heroIdx = (heroIdx + d + heroItems.length) % heroItems.length; showHero(); }
+  function stepHero(d, auto) { if (!heroItems.length) return; if (!auto) heroAuto = false; heroIdx = (heroIdx + d + heroItems.length) % heroItems.length; showHero(); }
   var idleSince = Date.now();
-  setInterval(function () { if (S.autoplay && heroAuto && view === 'home' && pos.r <= 1 && Date.now() - idleSince > 11000) stepHero(1, true); }, 12000);
+  setInterval(function () { if (S.autoplay && heroAuto && view === 'home' && !document.body.classList.contains('scrolled') && Date.now() - idleSince > 11000) stepHero(1, true); }, 12000);
 
   // ---------- navigation (keys + pointer) ----------
   var nav = [], pos = {r: 0, c: 0}, mem = {}, view = 'home', prevView = 'home';
@@ -897,6 +1032,11 @@
   // Only the row being moved gets its own GPU layer (a long row is ~14000 px wide: one layer per row costs a lot of memory on the TV).
   var hotStrip = null;
   function heat(strip) { if (hotStrip === strip) return; if (hotStrip) hotStrip.style.willChange = ''; hotStrip = strip; strip.style.willChange = 'transform'; }
+  // where the focus starts on the home screen: the first icon of the row of apps (the most frequent thing to do), the featured title being one press up
+  function startRow() {
+    for (var r = 2; r < nav.length; r++) if (nav[r] && nav[r][0] && nav[r][0].app) return r;
+    return 1;
+  }
   function focus(fromPointer) {
     var cur = document.querySelector('.focus'); if (cur) cur.classList.remove('focus');
     if (!nav.length) return;
@@ -1008,7 +1148,7 @@
       return activate(cur);
     }
     else if (k === 461 || k === 27 || k === 8) { if (editing && !views[view]) { ev.preventDefault(); return setEditing(false); } // Back cancels the edit mode first
-      if (views[view]) return views[view].back ? views[view].back() : closeView(); if (view === 'settings') return closeSettings(true); if (view === 'quick') return closeQuick(); if (view !== 'home') setView('home'); else { pos.r = 1; pos.c = 0; } }
+      if (views[view]) return views[view].back ? views[view].back() : closeView(); if (view === 'settings') return closeSettings(true); if (view === 'quick') return closeQuick(); if (view !== 'home') setView('home'); else { pos.r = startRow(); pos.c = 0; } }
     else return;
     ev.preventDefault();
     focus();
@@ -1097,7 +1237,7 @@
   weather(); setInterval(function () { if (!document.hidden) weather(); }, 15 * 60 * 1000);
   $('avatar').textContent = C.NAME;
   if (S.liveTab === false) document.querySelector('[data-act=live]').classList.add('off');
-  if (S.profileBtn === false) $('avatar').classList.add('off');
+  if (noAvatar()) $('avatar').classList.add('off');
   document.querySelector('.qav').textContent = C.NAME;
   $('qdim').onclick = function () { closeQuick(); };
   $('sdim').onclick = function () { closeSettings(); };
@@ -1157,6 +1297,8 @@
     refresh: function () { buildRows(); },
     setContinue: setContinue, continuing: function () { return cont; },
     itemDetails: function (it) { return openItem(it); },   // long OK on a card of "Continue watching": details.js shows the details page
+    fullOk: fullOk, fullBg: fullBg, blurredBg: blurredBg, noteBackdrops: noteBackdrops, refineBest: refineBest,
+    refreshAvatar: function () { $('avatar').classList.toggle('off', noAvatar()); buildNav(); },
     onOpened: null,                // set by watched.js: called with the title just opened from this screen
     seen: {has: isSeen, skipped: isSkipped, mark: setSeen, skip: setSkipped, list: function () { return seen; }, merge: mergeSynced, importCards: importSeen,
       onChange: function (fn) { seenListeners.push(fn); }},
@@ -1233,7 +1375,7 @@
     if (!$('spanel').hidden) { $('spanel').hidden = $('sdim').hidden = true; }
     while (views[view]) closeView();
     if (view !== 'home') setView('home');
-    pos.r = 1; pos.c = 0; buildNav();
+    buildNav(); pos.r = startRow(); pos.c = 0;
   });
 
   // ---------- boot ----------
@@ -1262,12 +1404,19 @@
   mark('cache-parsed');
   var cachedSig = '';
   if (cached && cached.base && cached.base.length) {
-    heroItems = cached.hero; base = cached.base;
+    applyBest(cached.hero);
+    heroItems = cached.hero.filter(fullOk);   // only titles known to have a sharp enough picture; the others wait for TMDB's answer below
+    base = cached.base;
     cachedSig = JSON.stringify({hero: heroItems, base: base});   // to tell later whether the fresh data is any different
-    buildRows(); mark('rows-built'); showHero(); mark('hero-shown'); pos.r = 1; focus(); mark('cache-drawn'); booted();
+    buildRows(); mark('rows-built'); showHero(); mark('hero-shown'); pos.r = startRow(); focus(); mark('cache-drawn'); booted();
+    if (heroItems.length < cached.hero.length) refineBest(cached.hero).then(function () {   // some were unknown (first start after an update): ask, then show the sharp ones
+      var ok = cached.hero.filter(fullOk);
+      if (ok.length && !heroItems.length) { heroItems = ok; heroIdx = 0; showHero(); }
+    });
   }
   var tries = 0, drawnEarly = false;
   function loadHome() { return loadApps().then(function () {
+    if (cachedSig) { buildGrid(); if (view === 'apps') buildNav(); }   // the apps are known now (the cached draw had none)
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
     return safe(tmdb('watch/providers/tv', '&watch_region=' + C.REGION)).then(function (pr) {
       var providers = pr ? pr.results : [];
@@ -1279,10 +1428,15 @@
         var dup = {}, early = [];
         (x[0] || []).concat(x[1] || []).forEach(function (it) { var k = keyOf(it); if (!dup[k] && !isSeen(it) && !isSkipped(it)) { dup[k] = 1; early.push(it); } });
         if (!early.length || drawnEarly || cachedSig) return;
-        drawnEarly = true;
-        heroItems = early.slice(0, 6);
-        base = [{title: 'Picked for you', items: early.slice(6)}, {title: 'Your apps', apps: visibleApps()}];
-        buildRows(); showHero(); pos.r = 1; focus(); mark('early-drawn'); booted();
+        refineBest(early.slice(0, 24)).then(function () {
+          if (drawnEarly || cachedSig) return;
+          drawnEarly = true;
+          var inHero = {}, hero = early.slice(0, 24).filter(fullOk).slice(0, 6);
+          hero.forEach(function (it) { inHero[keyOf(it)] = 1; });
+          heroItems = hero;
+          base = [{title: 'Picked for you', items: early.filter(function (it) { return !inHero[keyOf(it)]; })}, {title: 'Your apps', apps: visibleApps()}];
+          buildRows(); showHero(); pos.r = startRow(); focus(); mark('early-drawn'); booted();
+        });
       });
       return Promise.all([
         pMine,
@@ -1304,10 +1458,17 @@
         if (++tries < 40) { if (!cached) setText('bootmsg', 'Waiting for the internet…'); setTimeout(loadHome, 5000); }
         return;
       }
-      heroItems = picks.slice(0, 6);
+      // the featured titles are the first ones with a sharp full-screen picture (see MIN_FULL); the others stay in the row as cards
+      var cand = picks.slice(0, 30);
+      return refineBest(cand).then(function () {
+      applyBest(cand);
+      setTimeout(prefetchBest, 8000);
+      var inHero = {}, hero = cand.filter(fullOk).slice(0, 6);
+      hero.forEach(function (it) { inHero[keyOf(it)] = 1; });
+      heroItems = hero;
       // services that keep their own row (Crunchyroll...) go last, new then popular; the shared rows stay grouped above them
       var own = function (row) { return row.svc && row.svc.merge === false; };
-      base = [{title: 'Picked for you', items: picks.slice(6)}, {title: 'Your apps', apps: visibleApps()}]
+      base = [{title: 'Picked for you', items: picks.filter(function (it) { return !inHero[keyOf(it)]; })}, {title: 'Your apps', apps: visibleApps()}]
         .concat(fresh.filter(function (x) { return !own(x); }), popular.filter(function (x) { return !own(x); }), r[4] ? [r[4]] : [],
           fresh.filter(own), popular.filter(own));
       var bake = function () { base.slice(0, 5).forEach(function (row) { (row.items || []).slice(0, 6).forEach(function (it) { bakeAhead(it.blur); }); }); }; // first screens ready
@@ -1319,7 +1480,8 @@
       var first = !cached && !drawnEarly; // keep the user's place if they already started moving around the cached screen
       buildRows(); showHero(); booted();
       bake();
-      if (first) { pos.r = 1; focus(); }
+      if (first) { pos.r = startRow(); focus(); }
+      });
     });
   }); }
   mark('before-loadHome');

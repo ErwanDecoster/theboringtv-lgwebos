@@ -7,16 +7,20 @@
 #ambient img.kb1 { animation: amb-kb1 16s linear both; }
 #ambient img.kb2 { animation: amb-kb2 16s linear both; }
 #ambient img.kb3 { animation: amb-kb3 16s linear both; }
-@keyframes amb-kb0 { from { transform: scale(1.08) translate(0, 0); } to { transform: scale(1.14) translate(-2%, -1%); } }
-@keyframes amb-kb1 { from { transform: scale(1.14) translate(-2%, 1%); } to { transform: scale(1.08) translate(1%, 0); } }
-@keyframes amb-kb2 { from { transform: scale(1.08) translate(2%, 0); } to { transform: scale(1.15) translate(-1%, 1%); } }
-@keyframes amb-kb3 { from { transform: scale(1.15) translate(1%, -1%); } to { transform: scale(1.08) translate(-1%, 1%); } }
+/* a gentle zoom: the less a picture is stretched, the sharper it stays */
+@keyframes amb-kb0 { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.08) translate(-1.5%, -1%); } }
+@keyframes amb-kb1 { from { transform: scale(1.08) translate(-1.5%, 1%); } to { transform: scale(1.03) translate(1%, 0); } }
+@keyframes amb-kb2 { from { transform: scale(1.03) translate(1.5%, 0); } to { transform: scale(1.09) translate(-1%, 1%); } }
+@keyframes amb-kb3 { from { transform: scale(1.09) translate(1%, -1%); } to { transform: scale(1.03) translate(-1%, 1%); } }
 /* bottom scrim: one cheap gradient instead of text shadows */
 #ambient::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 360px; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
 #ambient .amb-clock, #ambient .amb-title { position: absolute; bottom: 64px; z-index: 1; color: #e8eaed; }
 #ambient .amb-clock { left: 88px; }
-#ambient .amb-clock b { display: block; font-size: 120px; font-weight: 300; line-height: 1; letter-spacing: -2px; }
-#ambient .amb-clock span { display: block; margin-top: 12px; font-size: 30px; opacity: .85; }
+#ambient .amb-clock b { display: block; font-size: 120px; font-weight: 700; line-height: 1; letter-spacing: -2px; }
+#ambient .amb-sub { display: flex; align-items: center; margin-top: 12px; font-size: 30px; opacity: .9; }
+#ambient .amb-wx { display: flex; align-items: center; margin-left: 34px; font-weight: 500; }
+#ambient .amb-wx:empty { display: none; }
+#ambient .amb-wx svg { width: 36px; height: 36px; margin-right: 10px; }
 #ambient .amb-title { right: 88px; max-width: 760px; text-align: right; }
 #ambient .amb-title b { display: block; font-size: 30px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #ambient .amb-title span { display: block; margin-top: 6px; font-size: 22px; opacity: .7; }

@@ -11,7 +11,7 @@
   try { list = JSON.parse(localStorage.profiles || '[]'); } catch (e) { list = []; }
   // id 'default' keeps prefix '' so settings/history saved before profiles existed stay with it
   if (!list.length) list = [{id: 'default', name: (window.CONFIG && CONFIG.NAME) || 'Me', color: COLORS[0], kids: false, hideApps: []}];
-  function save() { localStorage.profiles = JSON.stringify(list); }
+  function save() { localStorage.profiles = JSON.stringify(list); if (window.TV && window.TV.refreshAvatar) window.TV.refreshAvatar(); }   // the top button follows the number of profiles
   function byId(id) { return list.filter(function (p) { return p.id === id; })[0]; }
   function prefix(p) { return p.id === 'default' ? '' : p.id + '.'; }
   save();

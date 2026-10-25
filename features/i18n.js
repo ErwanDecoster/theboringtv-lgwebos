@@ -24,7 +24,7 @@
     'Clear Voice': 'Voix claire', 'AI Sound Pro': 'AI Sound Pro',
     // rows
     'Top picks for you': 'Sélection pour vous', 'Picked for you': 'Choisis pour vous', 'New on your services': 'Nouveautés sur vos services', 'Top rated on your services': 'Les mieux notés sur vos services',
-    'New on your services row': 'Rangée Nouveautés', 'Live TV tab': 'Onglet En direct', 'The Live tab at the top of the home screen': 'L’onglet En direct en haut de l’accueil', 'Profile button': 'Bouton de profil', 'The round button at the top of the home screen; profiles stay available from the quick settings': 'Le bouton rond en haut de l’accueil ; les profils restent accessibles depuis les réglages rapides', 'Show': 'Afficher', 'Hide': 'Masquer', 'Recent releases included in your subscriptions': 'Sorties récentes incluses dans vos abonnements', 'Popular on your services': 'Populaire sur vos services', 'Popular now': 'Populaire en ce moment',
+    'New on your services row': 'Rangée Nouveautés', 'Live TV tab': 'Onglet En direct', 'The Live tab at the top of the home screen': 'L’onglet En direct en haut de l’accueil', 'Profile button': 'Bouton de profil', 'The round button at the top of the home screen. Auto: shown only when there are several profiles. Profiles stay available from the quick settings': 'Le bouton rond en haut de l’accueil. Auto : affiché seulement s’il y a plusieurs profils. Les profils restent accessibles depuis les réglages rapides', 'Show': 'Afficher', 'Hide': 'Masquer', 'Recent releases included in your subscriptions': 'Sorties récentes incluses dans vos abonnements', 'Popular on your services': 'Populaire sur vos services', 'Popular now': 'Populaire en ce moment',
     'Trending today': 'Tendances du jour', 'Trending on YouTube': 'Tendances YouTube', 'Continue watching': 'Continuer à regarder', 'My watchlist': 'À voir',
     'More like this': 'Titres similaires', 'Where to watch': 'Où regarder', 'Edit apps': 'Modifier les applications', 'Move': 'Déplacer', 'Remove from home': 'Retirer de l’accueil',
     'Not on your services': 'Pas sur vos services', 'Trailer': 'Bande-annonce', '＋ Watchlist': '＋ À voir', '✓ In watchlist': '✓ Dans À voir',
@@ -64,6 +64,9 @@
     'Not supported on this TV': 'Non pris en charge sur cette TV', 'Needs the TV Home service (rooted TV)': 'Nécessite le service TV Home (TV rootée)', 'Could not look up where to watch': 'Impossible de chercher où regarder',
     'Could not load details': 'Impossible de charger les détails', 'Added to your watchlist': 'Ajouté à « À voir »', 'Removed from your watchlist': 'Retiré de « À voir »',
     // seen / not interested, Trakt
+    'Pictures are still loading': 'Les images sont encore en cours de chargement',
+    'Picture quality': 'Qualité des images', 'High brings in the full-size pictures behind the home screen and in the ambient slideshow: sharper, a little slower to load. Standard keeps the lighter ones': 'Haute utilise les images en taille réelle derrière l’accueil et dans le diaporama d’ambiance : plus nettes, un peu plus lentes à charger. Standard garde les plus légères', 'High': 'Haute',
+    'View details': 'Voir les détails',
     'Mark as seen': 'Marquer comme vu', '○ Mark as seen': '○ Marquer comme vu', '✓ Seen': '✓ Vu', '✕ Not interested': '✕ Pas intéressé', '✓ Not interested': '✓ Pas intéressé',
     'Marked as seen': 'Marqué comme vu', 'Removed from seen': 'Retiré des titres vus', 'We won’t suggest it again': 'Nous ne le proposerons plus', 'Suggestions allowed again': 'Suggestions de nouveau autorisées',
     'Recently finished': 'Terminés récemment', 'Seen it?': 'Vu ?', 'You opened it a while ago. Did you watch it?': 'Vous l’avez ouvert il y a un moment. L’avez-vous regardé ?',
@@ -105,6 +108,7 @@
     [/^Trakt error (\d+)$/, function (m) { return 'Erreur Trakt ' + m[1]; }],
     [/^Up next(?:  ·  (.+))?$/, function (m) { return 'Épisode suivant' + (m[1] ? '  ·  ' + m[1] : ''); }],
     [/^Resume  ·  (.+)$/, function (m) { return 'Reprendre  ·  ' + m[1].replace(/^(\d+)%$/, '$1 %'); }],
+    [/^Open in (.+)$/, function (m) { return 'Ouvrir dans ' + m[1]; }],
     [/^✓ (.+)$/, function (m) { return '✓ ' + (DICT[m[1]] || m[1]); }],   // the tick in front of a selected chip
     [/^Popular on (.+)$/, function (m) { return 'Populaire sur ' + m[1]; }],
     [/^Popular in (.+)$/, function (m) { return 'Populaire en ' + lang(m[1]); }],
