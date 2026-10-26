@@ -332,7 +332,7 @@ function onHome () {
 var COLOR_CODES = {red: 398, green: 399, yellow: 400, blue: 401};   // KEY_RED, KEY_GREEN, KEY_YELLOW, KEY_BLUE
 var colorByCode = {}, colorCfg = null, colorLast = {};
 
-// events.json is read once (it holds webhook addresses; the helper is restarted to change it): the power events, the colour buttons and the heartbeat all share it.
+// events.json is read once (it holds webhook addresses; the helper is restarted to change it): the power events and the colour buttons share it.
 var eventsCfg;
 function events () {
 	if (eventsCfg === undefined) {
@@ -355,22 +355,6 @@ function followLuna (uri, params, onLine) {
 	});
 	child.on('exit', again);
 	child.on('error', again);
-}
-
-// ---------- heartbeat ----------
-// "heartbeatWebhook" in events.json: every 5 minutes (and at start) a small POST tells Home Assistant the helper is alive. Home Assistant cannot see the absence of a webhook by itself:
-// an automation that fires on it keeps a "last_triggered" date, and another one raises the alarm when that date is old while the TV is on (see the README). The helper being absent
-// after a boot (see the field notes) is exactly what this catches.
-var HEARTBEAT_MS = 5 * 60 * 1000;
-function startHeartbeat () {
-	var cfg = events();
-	if (!cfg || !isUrl(cfg.heartbeatWebhook)) return;
-	function beat () {
-		postJson(cfg.heartbeatWebhook, {event: 'heartbeat', name: cfg.name || 'tv', version: VERSION, uptime: Math.round(os.uptime()), at: new Date().toISOString()}, 2);   // 2: one retry only, the next beat comes soon
-	}
-	beat();
-	setInterval(beat, HEARTBEAT_MS);
-	log('heartbeat: every ' + HEARTBEAT_MS / 60000 + ' min');
 }
 
 function configureColorKeys () {
@@ -473,7 +457,7 @@ function makePowerHandler(emit) {
 }
 // </power-handler>
 
-function what(body) { return body.event === 'key' ? 'button ' + body.key : body.event === 'heartbeat' ? 'heartbeat' : 'power event ' + body.event; }   // for the log
+function what(body) { return body.event === 'key' ? 'button ' + body.key : 'power event ' + body.event; }   // for the log
 function postJson(urlString, body, tries) {
 	var u = urlLib.parse(urlString), data = JSON.stringify(body);
 	var req = (u.protocol === 'https:' ? https : http).request({
@@ -481,7 +465,7 @@ function postJson(urlString, body, tries) {
 		headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data)}
 	}, function (res) {
 		res.resume();
-		if (res.statusCode >= 200 && res.statusCode < 300) return body.event === 'heartbeat' ? 0 : log(what(body) + ' sent (' + res.statusCode + ')');   // a heartbeat every 5 minutes is not worth a line
+		if (res.statusCode >= 200 && res.statusCode < 300) return log(what(body) + ' sent (' + res.statusCode + ')');
 		retry('HTTP ' + res.statusCode);
 	});
 	req.on('timeout', function () { req.destroy(new Error('timeout')); });
@@ -766,7 +750,6 @@ http.createServer(function (req, res) {
 	watchForeground();
 	watchPower();
 	configureColorKeys();
-	startHeartbeat();
 	watchScreenSaver();
 	bootLaunch(0, 0);
 	log('listening on ' + HOST + ':' + PORT + ' (pid ' + process.pid + ')');

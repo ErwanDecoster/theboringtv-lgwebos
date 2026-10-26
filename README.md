@@ -219,7 +219,7 @@ mono, raw); `tools/tv-service` streams it over `GET /mic`.
 **9. Two layers swapping a z-index cross any veil between them.** The blurred background behind the rows is two layers that fade into each other by swapping `z-index` 1 / 0. With a dark veil of a neutral level between the home screen and its rows, the layer in front sits above the veil and the one underneath below it:
 every change dips to the shaded picture and back (measured by recording the screen: two identical grey pictures went from luminance 119 to 48 and back; the opacities were fine). The two layers therefore live in a stacking context of their own, together above the veil (the same arrangement keeps the details page's background layers under its text).
 
-**10. The home screen is drawn from its cache first.** It is drawn before the features have registered their rows (watchlist, recently finished) and is not rebuilt when the fresh data equals the cache; the Apps grid is built before the app list has loaded. So both are built again once what they were missing is known.
+**10. The home screen is drawn from its cache first.** It is drawn before the features have registered their rows (watchlist, recently finished) and is not rebuilt when the fresh data equals the cache (nor refreshed at all from the network when the cache is under 30 minutes old); the Apps grid is built before the app list has loaded. So both are built again once what they were missing is known.
 
 **11. The helper may not start after a cold boot (seen once).** Symptoms: the Apps page shows only the apps listed in `config.js` (the full list comes from the helper), the quick settings say the service is needed, the colour buttons and the power events
 no longer reach Home Assistant, `ssh` is refused. Unplugging the TV for a few seconds brings everything back. The logs of that boot were gone (`/tmp` and `/var/log` are emptied at each boot), so the cause is not established (a Wi-Fi outage that night, a system
@@ -464,35 +464,8 @@ Then one automation turns the webhook into an event and one automation per butto
 ```
 The buttons keep their usual job in apps that use them (teletext in live TV, for instance): the event is sent in addition.
 
-## Home Assistant: a heartbeat, to know when the helper is not running
-The helper may fail to start after a cold boot (see field note 11): then nothing is sent to Home Assistant and nothing says so. With `"heartbeatWebhook"` in `events.json` (a webhook of its own: one webhook id serves one trigger),
-the helper sends `{"event": "heartbeat", "name", "version", "uptime", "at"}` at start and every 5 minutes (one retry, no log line per beat). Home Assistant cannot see a missing webhook by itself, so two automations: one receives the beat (its
-`last_triggered` date is the last time the helper was heard), the other raises the alarm when that date is old while the TV is on:
-```yaml
-- alias: "TV: helper heartbeat"
-  triggers:
-    - trigger: webhook
-      webhook_id: CHANGE-ME-a-third-long-random-id
-      allowed_methods: [POST]
-      local_only: true
-  actions:
-    - event: tv_home_heartbeat
-
-- alias: "TV: the helper is not answering"
-  triggers:
-    - trigger: template
-      value_template: >
-        {% set last = state_attr('automation.tv_helper_heartbeat', 'last_triggered') %}
-        {{ states('media_player.<your tv>') not in ['off', 'unavailable', 'unknown']
-           and (last is none or now() - as_datetime(last) > timedelta(minutes=12)) }}
-      for: "00:05:00"
-  actions:
-    - action: notify.<your phone>
-      data: {title: "TV Home", message: "The helper service is not answering: unplug the TV for a few seconds."}
-```
-The 5 minutes of `for` leave the helper time to start after a boot (it is up about 20 s after the TV).
-A webhook id is a secret: do not paste it anywhere public. To set one on the TV without typing it into a chat or a command line, `tools/tv-service/set-webhook.sh heartbeatWebhook` asks for it (hidden) and writes it into the TV's `events.json`
-(`keysWebhook` and `webhook` work the same way); the host is taken from the existing `webhook`.
+A webhook id is a secret: do not paste it anywhere public. To set one on the TV without typing it into a chat or a command line, `TV_HOST=root@<tv-ip> tools/tv-service/set-webhook.sh keysWebhook` asks for it (hidden) and writes it into the TV's `events.json`
+(`webhook` works the same way); the host is taken from the existing `webhook`. The helper reads `events.json` at start: restart it afterwards.
 
 ## Deep links
 "Watch on …" opens the exact title, using the link format each app accepts (Prime's and JioHotstar's were captured

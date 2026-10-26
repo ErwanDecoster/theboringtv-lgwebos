@@ -13,6 +13,5 @@
     "green",
     "yellow",
     "blue"
-  ],
-  "heartbeatWebhook": "http://homeassistant.local:8123/api/webhook/CHANGE-ME-a-third-long-random-id"
+  ]
 }
