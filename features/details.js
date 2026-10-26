@@ -2,7 +2,7 @@
 // OK on a title opens a full-screen details page (where to watch, trailer, watchlist, more like this).
 (function () {
   var TV = window.TV, esc = TV.esc;
-  var box = TV.el('div'), stack = [], cache = {}, origin = null;
+  var box = TV.el('div'), stack = [], origin = null;
   box.id = 'details'; box.hidden = true;
   document.body.appendChild(box);
   // The page is redrawn whenever its content changes (opened, then the data arrives, then a buttons change): its background must not be, or the picture would be
@@ -72,48 +72,103 @@
   TV.addRow(function () { return list.length ? {title: 'My watchlist', items: list} : null; });
 
   // ---------- data ----------
-  function load(it) {
-    var k = it.tmdb.type + '/' + it.tmdb.id;
-    if (cache[k] && !cache[k].then) return Promise.resolve(cache[k]);   // already loaded: the cache then holds the data itself, not the promise
-    if (!cache[k]) cache[k] = TV.tmdb(k, '&append_to_response=credits,videos,watch/providers,recommendations,images&include_image_language=null')
-      .then(function (d) { return (cache[k] = d); }, function (e) { delete cache[k]; throw e; });
-    return cache[k];
+  // One big TMDB call (credits with the whole crew, every country's providers, every backdrop, recommendations) was awaited before anything but "Loading…" showed.
+  // Now two small ones run in parallel and the page paints from the first: A = what the buttons need (overview, runtime, genres, where to watch, trailer),
+  // B = the decoration (cast, "More like this"), filled in without redrawing the page. The pictures list is TV.refineBest's own call, skipped when the title is already known.
+  var mem = {}, order = [], MEM_MAX = 40;            // mem[k] = {a, b, pa, pb}: the slimmed answers, then the pending requests
+  var DISK = 'detailsA.v1', DISK_TTL = 6 * 3600e3, DISK_MAX = 40, disk = null, diskTimer = 0;
+  function key(it) { return it.tmdb.type + '/' + it.tmdb.id; }
+  function entry(k) {
+    if (!mem[k]) { mem[k] = {}; order.push(k); if (order.length > MEM_MAX) delete mem[order.shift()]; }   // the TV has no memory to spare: the oldest go
+    return mem[k];
   }
-  // Ahead of the click: the focused card's details page is fetched as soon as the focus rests on it (not while a key is held, not for every card swept past):
-  // the data, then the full-size backdrop (or nothing if it has none sharp enough), so OK finds both already there.
+  // a request that cannot stall the page: a slow or silent connection fails after `ms`
+  function timed(p, ms) {
+    return new Promise(function (ok, no) {
+      var t = setTimeout(function () { no(new Error('timeout')); }, ms);
+      p.then(function (v) { clearTimeout(t); ok(v); }, function (e) { clearTimeout(t); no(e); });
+    });
+  }
+  function provs(a) { return (a || []).map(function (p) { return {provider_name: p.provider_name}; }); }
+  // keep only what render uses (a full answer is ~100 KB of JSON)
+  function slimA(d) {
+    var reg = ((d['watch/providers'] || {}).results || {})[TV.C.REGION] || {}, res = {}, tr = ((d.videos || {}).results || []).filter(function (v) { return v.site === 'YouTube' && v.type === 'Trailer'; })[0];
+    res[TV.C.REGION] = {flatrate: provs(reg.flatrate), ads: provs(reg.ads), free: provs(reg.free), rent: provs(reg.rent), buy: provs(reg.buy)};
+    return {overview: d.overview, runtime: d.runtime, number_of_seasons: d.number_of_seasons, genres: (d.genres || []).slice(0, 3).map(function (g) { return {name: g.name}; }),
+      'watch/providers': {results: res}, videos: {results: tr ? [{key: tr.key}] : []}};
+  }
+  function slimB(d) {
+    return {credits: {cast: ((d.credits || {}).cast || []).slice(0, 6).map(function (c) { return {name: c.name}; })},
+      recommendations: {results: ((d.recommendations || {}).results || []).filter(function (m) { return m.backdrop_path; }).slice(0, 20).map(function (m) {
+        return {id: m.id, media_type: m.media_type, title: m.title, name: m.name, overview: m.overview, release_date: m.release_date, first_air_date: m.first_air_date,
+          vote_average: m.vote_average, popularity: m.popularity, backdrop_path: m.backdrop_path, poster_path: m.poster_path};
+      })}};
+  }
+  // A is also kept in localStorage for a few hours: a title opened again (or one the focus rested on) after a restart paints at once
+  function diskMap() { if (!disk) { try { disk = JSON.parse(localStorage.getItem(DISK) || '{}'); } catch (e) { disk = {}; } } return disk; }
+  function diskKey(k) { return k + '|' + TV.C.LANG + '|' + TV.C.REGION; }
+  function diskGet(k) { var e = diskMap()[diskKey(k)]; return e && Date.now() - e.at < DISK_TTL ? e.d : null; }
+  function diskPut(k, a) {
+    var m = diskMap(); m[diskKey(k)] = {at: Date.now(), d: a};
+    clearTimeout(diskTimer);
+    diskTimer = setTimeout(function () {   // later, off the path of the page
+      var keys = Object.keys(m).sort(function (x, y) { return m[y].at - m[x].at; });
+      keys.slice(DISK_MAX).forEach(function (x) { delete m[x]; });
+      try { localStorage.setItem(DISK, JSON.stringify(m)); } catch (e) { /* storage full: fetched again next time */ }
+    }, 3000);
+  }
+  function loadA(it) {
+    var k = key(it), e = entry(k);
+    if (e.a) return Promise.resolve(e.a);
+    if (!e.pa) {
+      var cached = diskGet(k);
+      if (cached) return Promise.resolve((e.a = cached));
+      e.pa = timed(TV.tmdb(k, '&append_to_response=watch/providers,videos'), 12000).then(function (d) { e.pa = null; e.a = slimA(d); diskPut(k, e.a); return e.a; }, function (er) { e.pa = null; throw er; });
+    }
+    return e.pa;
+  }
+  function loadB(it) {
+    var k = key(it), e = entry(k);
+    if (e.b) return Promise.resolve(e.b);
+    if (!e.pb) e.pb = timed(TV.tmdb(k, '&append_to_response=credits,recommendations'), 20000).then(function (d) { e.pb = null; return (e.b = slimB(d)); }, function (er) { e.pb = null; throw er; });
+    return e.pb;
+  }
+  // what is known so far for a title (A, B or both), or null
+  function known(it) { var e = mem[key(it)]; return e && (e.a || e.b) ? Object.assign({}, e.a, e.b) : null; }
+  // Ahead of the click: the focused card's details are fetched as soon as the focus rests on it (not while a key is held, not for every card swept past):
+  // A, then the full-size backdrop (or nothing if it has none sharp enough), so OK finds both already there. B (cast, suggestions) waits for the click.
   var warmPics = [];
   function prefetch(it) {
     if (!it || !it.tmdb || it.src === 'YouTube') return;
-    load(it).then(function (d) {
-      if (d.images) TV.noteBackdrops(it, d.images.backdrops);
+    loadA(it).catch(function () { /* the page asks again when it is opened */ });
+    TV.refineBest([it]).then(function () {
       var u = TV.fullBg(it);
       if (!u) return;
       var im = new Image(); im.decoding = 'async'; im.src = u;   // into the browser's cache, and decoded now (a 4K picture paints nothing until it is): a few are kept referenced
       if (im.decode) im.decode().catch(function () { /* the page decodes it again */ });
       warmPics.push(im); if (warmPics.length > 3) warmPics.shift();
-    }, function () { /* the page asks again when it is opened */ });
+    });
   }
   TV.prefetchDetails = prefetch;
   function names(a) { return (a || []).map(function (p) { return p.provider_name; }).filter(function (n, i, all) { return all.indexOf(n) === i; }); }
 
   // ---------- render ----------
   function btn(label, fn) { var b = TV.el('span', 'dbtn f', label); b.onok = fn; return b; }
-  function render(it, d) { // d = TMDB details (or null while loading)
-    if (d && d.images) TV.noteBackdrops(it, d.images.backdrops);
-    var meta = it.meta, cast = '', extra = '';
+  function render(it, d, failed) { // d = what is known of the TMDB details (A and/or B, see above), or null while loading
+    var meta = it.meta, extra = '';
     if (d) {
       var len = d.runtime ? Math.floor(d.runtime / 60) + 'h ' + d.runtime % 60 + 'm'
         : d.number_of_seasons ? d.number_of_seasons + (d.number_of_seasons > 1 ? ' seasons' : ' season') : '';
       meta = [meta, len, (d.genres || []).slice(0, 3).map(function (g) { return g.name; }).join(', ')].filter(Boolean).join('  ·  ');
-      cast = (d.credits && d.credits.cast || []).slice(0, 6).map(function (c) { return c.name; }).join(', ');
     }
     page.innerHTML = '<div class="dshade"></div>' +
       '<div class="dbody"><div class="dsrc">' + esc(it.src) + '</div><h1>' + esc(it.title) + '</h1><div class="dmeta">' + esc(meta) + '</div>' +
-      '<p class="dsub">' + esc(d ? d.overview || it.sub : it.sub) + '</p>' + (cast ? '<div class="dcast">Cast: ' + esc(cast) + '</div>' : '') +
+      '<p class="dsub">' + esc(d && d.overview || it.sub) + '</p>' +
+      '<div class="dcast">&nbsp;</div>' +   // holds the line until the cast arrives, so the buttons do not jump
       '<div class="dbtns"></div><div class="dextra"></div></div>';
     setBg(it);
     var btns = box.querySelector('.dbtns');
-    if (d) {
+    if (d && d['watch/providers']) {
       var reg = (d['watch/providers'] || {}).results || {}, here = reg[TV.C.REGION] || {}, seen = {};
       (here.flatrate || []).concat(here.ads || [], here.free || []).forEach(function (p) {
         var svc = TV.svcFor(p.provider_name);
@@ -127,7 +182,7 @@
       var tr = ((d.videos || {}).results || []).filter(function (v) { return v.site === 'YouTube' && v.type === 'Trailer'; })[0];
       if (tr) btns.appendChild(btn('Trailer', function () { TV.launch('youtube.leanback.v4', {contentTarget: 'https://www.youtube.com/tv?v=' + tr.key}); }));
     }
-    if (!d) btns.appendChild(TV.el('span', 'dnone', 'Loading…'));   // no button to press until the real ones are there (a quick second OK would land on the watchlist)
+    if (!d || !d['watch/providers']) btns.appendChild(TV.el('span', 'dnone', failed ? 'Could not load details' : 'Loading…'));   // no button to press until the real ones are there (a quick second OK would land on the watchlist)
     else {
       var wl = btn(inList(it) ? '✓ In watchlist' : '＋ Watchlist', function () { wl.textContent = toggle(it) ? '✓ In watchlist' : '＋ Watchlist'; });
       btns.appendChild(wl);
@@ -136,8 +191,7 @@
         var on = !TV.seen.has(it); TV.seen.mark(it, on);
         TV.toast(on ? 'Marked as seen' : 'Removed from seen');
         // "not interested" only makes sense for a title you have not seen: draw the buttons again
-        var dd = cache[it.tmdb.type + '/' + it.tmdb.id];
-        render(it, dd && !dd.then ? dd : null);
+        render(it, known(it));
         var all = [].slice.call(box.querySelectorAll('.dbtns .f'));
         TV.rebuild(0, Math.max(0, all.indexOf(box.querySelector('.dbtns .dseen'))));
       });
@@ -149,27 +203,41 @@
       btns.appendChild(sn); if (ni) btns.appendChild(ni);   // a title you saw is already out of the suggestions: "not interested" would add nothing
     }
     box.querySelector('.dextra').textContent = extra;
-    var recs = d && ((d.recommendations || {}).results || []).filter(function (m) { return m.backdrop_path; }).slice(0, 20);
-    if (recs && recs.length) {
+    if (d) fill(it, d);
+  }
+  // cast and "More like this": B, which arrives after the page is up (or with it, when already known)
+  function fill(it, d) {
+    var c = page.querySelector('.dcast'), recs = d.recommendations && d.recommendations.results;
+    if (!d.credits && !recs) return;
+    var cast = ((d.credits || {}).cast || []).map(function (p) { return p.name; }).join(', ');
+    if (c) { if (cast) c.textContent = 'Cast: ' + cast; else c.remove(); }
+    if (recs && recs.length && !page.querySelector('.dmore')) {
       var more = TV.el('section', 'dmore', '<h3>More like this</h3>'), strip = TV.el('div', 'strip');
       recs.forEach(function (m) { strip.appendChild(TV.card(Object.assign(TV.fromTmdb(m), {src: 'Because you viewed ' + it.title}))); });
       more.appendChild(strip); page.appendChild(more);
     }
   }
+  function current(it) { return stack[stack.length - 1] === it && TV.view() === 'details'; }
   function show(it) {
     stack.push(it); box.hidden = false;
-    var k = it.tmdb.type + '/' + it.tmdb.id;
-    if (cache[k] && !cache[k].then) return render(it, cache[k]);
-    render(it, null);
-    load(it).then(function (d) {
-      if (stack[stack.length - 1] === it && TV.view() === 'details') { render(it, d); TV.rebuild(0, 0); }
-    }, function () { TV.toast('Could not load details'); });
+    var a = loadA(it), b = loadB(it);
+    // the pictures list (skipped when the title is already known): the sharp background may only become possible once it is there
+    timed(TV.refineBest([it]), 10000).then(function () { if (current(it)) setBg(it); }, function () { /* the blurred art stays */ });
+    var d = known(it);
+    render(it, d);
+    if (!d || !d['watch/providers']) a.then(function () {
+      if (current(it)) { render(it, known(it)); TV.rebuild(0, 0); }   // B may be there already: render fills it in
+    }, function () { if (current(it)) render(it, known(it), true); TV.toast('Could not load details'); });
+    // B only decorates: put in place without redrawing, keeping the focus where it is
+    b.then(function (bd) {
+      if (!current(it) || !page.querySelector('.dbtns .f')) return;   // before A the page is redrawn with B anyway
+      var p = TV.pos(); fill(it, bd); TV.rebuild(p.r, p.c);
+    }, function () { var c = current(it) && page.querySelector('.dcast'); if (c) c.remove(); });
   }
   function hide() {
     stack.pop();
     var prev = stack[stack.length - 1];
-    var d = prev && cache[prev.tmdb.type + '/' + prev.tmdb.id];
-    if (prev) render(prev, d && !d.then ? d : null); else { box.hidden = true; page.innerHTML = ''; clearBg(); }
+    if (prev) render(prev, known(prev)); else { box.hidden = true; page.innerHTML = ''; clearBg(); }
   }
 
   TV.addView('details', {

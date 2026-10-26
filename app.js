@@ -119,7 +119,7 @@
       apps = r.apps.map(function (a) {
         var k = known[a.id] || {}, url = a.icon ? HELPER + '/icon/' + encodeURIComponent(a.id) : undefined;
         if (url && !icons[a.id]) missing.push({id: a.id, url: url});
-        return {id: a.id, title: names[a.id] || k.title || a.title, color: k.color || a.color || '#3c4043', icon: k.icon, img: icons[a.id] || url};
+        return {id: a.id, title: names[a.id] || k.title || a.title, color: k.color || a.color || '#3c4043', icon: k.icon, img: icons[a.id] || url, removable: !!a.removable};
       }).sort(function (a, b) { return (rank[a.id] === undefined ? 1e4 : rank[a.id]) - (rank[b.id] === undefined ? 1e4 : rank[b.id]); });
       cacheIcons(missing); // keep them, so the icons are still there when the service is not
     });
@@ -167,6 +167,20 @@
       src: svc ? svc.name : pickLabel(), svc: svc, tmdb: {type: type, id: m.id}, pop: m.popularity || 0
     };
   }
+  // The home refresh issues ~30 requests at once. They would queue in front of the ones a details page needs (TV.tmdb is not queued), so they go
+  // through this queue instead: 4 at a time, and none starts while a page other than the home screen is open.
+  var bgQueue = [], bgActive = 0, bgTimer2 = 0;
+  function bgPump() {
+    if (view !== 'home') { if (bgQueue.length && !bgTimer2) bgTimer2 = setTimeout(function () { bgTimer2 = 0; bgPump(); }, 800); return; }
+    while (bgActive < 4 && bgQueue.length) {
+      bgActive++;
+      bgQueue.shift()().then(bgDone, bgDone);
+    }
+  }
+  function bgDone() { bgActive--; bgPump(); }
+  function lazyTmdb(path, q) {
+    return new Promise(function (ok, fail) { bgQueue.push(function () { return tmdb(path, q).then(ok, fail); }); bgPump(); });
+  }
   function mix(a, b) { var out = []; for (var i = 0; i < 20; i++) [a[i], b[i]].forEach(function (m) { if (m && m.backdrop_path) out.push(m); }); return out; }
   function providerOf(svc, providers) {
     var name = function (x) { return x.provider_name.toLowerCase(); };
@@ -178,7 +192,7 @@
     var p = providerOf(svc, providers);
     if (!p) return Promise.resolve(null);
     var q = '&watch_region=' + C.REGION + '&with_watch_providers=' + p.provider_id + '&with_watch_monetization_types=flatrate&sort_by=popularity.desc' + langQ();
-    return Promise.all([tmdb('discover/tv', q + ((extra && extra.tv) || '')), tmdb('discover/movie', q + ((extra && extra.movie) || ''))]).then(function (rs) {
+    return Promise.all([lazyTmdb('discover/tv', q + ((extra && extra.tv) || '')), lazyTmdb('discover/movie', q + ((extra && extra.movie) || ''))]).then(function (rs) {
       return {title: title || 'Popular on ' + svc.name, svc: svc, items: mix(rs[0].results, rs[1].results).map(function (m) { return fromTmdb(m, svc); })};
     });
   }
@@ -238,7 +252,7 @@
   function flatrateIds(type, id) {
     var a = readAvail(), k = type + ':' + id, e = a[k];
     if (e && Date.now() - e.at < AVAIL_TTL) return Promise.resolve(e.ids);
-    return tmdb(type + '/' + id + '/watch/providers').then(function (r) {
+    return lazyTmdb(type + '/' + id + '/watch/providers').then(function (r) {
       var here = (r.results || {})[C.REGION] || {};
       var ids = (here.flatrate || []).map(function (p) { return p.provider_id; });
       a[k] = {at: Date.now(), ids: ids};
@@ -274,7 +288,7 @@
     seen.forEach(function (x) { owned[keyOf(x)] = 1; });
     seeds = seeds.slice(0, 8);
     if (!seeds.length || !Object.keys(mine).length) return Promise.resolve([]);
-    return pool(seeds, 4, function (sd) { return tmdb(sd.tmdb.type + '/' + sd.tmdb.id + '/recommendations').then(function (r) { return r.results || []; }); }).then(function (lists) {
+    return pool(seeds, 4, function (sd) { return lazyTmdb(sd.tmdb.type + '/' + sd.tmdb.id + '/recommendations').then(function (r) { return r.results || []; }); }).then(function (lists) {
       var cand = {};
       lists.forEach(function (res, si) {
         var weight = (1 - si * 0.08) * (savedKeys[keyOf(seeds[si])] ? 1.4 : 1);
@@ -308,7 +322,7 @@
     var ids = Object.keys(minePerProvider(providers));
     if (!ids.length) return Promise.resolve([]);
     var q = '&watch_region=' + C.REGION + '&with_watch_providers=' + ids.join('%7C') + '&with_watch_monetization_types=flatrate&sort_by=vote_average.desc' + langQ();
-    return Promise.all([tmdb('discover/movie', q + '&vote_count.gte=1500'), tmdb('discover/tv', q + '&vote_count.gte=600')]).then(function (rs) {
+    return Promise.all([lazyTmdb('discover/movie', q + '&vote_count.gte=1500'), lazyTmdb('discover/tv', q + '&vote_count.gte=600')]).then(function (rs) {
       return mix(rs[0].results, rs[1].results).map(function (m) { var it = fromTmdb(m); it.why = true; it.src = 'Top rated on your services'; return it; });
     });
   }
@@ -371,12 +385,13 @@
   function prefetchBest() {
     if (prefetched) return; prefetched = true;
     var items = []; base.forEach(function (row) { (row.items || []).forEach(function (it) { if (it.tmdb) items.push(it); }); });
-    refineBest(items.slice(0, 120)).then(function () { applyBest(items); });
+    refineBest(items.slice(0, 120), true).then(function () { applyBest(items); });
   }
-  function refineBest(list) {
+  // `quiet`: through the home refresh's queue (nobody is waiting for the answer); otherwise straight away (a details page or the slideshow wants it now)
+  function refineBest(list, quiet) {
     var m = bestMap(), todo = (list || []).filter(function (it) { var e = info(it); return it.tmdb && (!e || Date.now() - e.at > BEST_TTL); });
     return pool(todo, 4, function (it) {
-      return tmdb(it.tmdb.type + '/' + it.tmdb.id + '/images', '&include_image_language=null').then(function (r) {
+      return (quiet ? lazyTmdb : tmdb)(it.tmdb.type + '/' + it.tmdb.id + '/images', '&include_image_language=null').then(function (r) {
         noteBackdrops(it, r.backdrops);
         if (heroItems[heroIdx] === it && view === 'home') showHero();
       });
@@ -429,10 +444,10 @@
     return n;
   }
   // rows of the home screen without what you have seen (only in the suggestion rows) or are not interested in (everywhere)
-  function unwanted(row) {
+  function unwanted(row, skipKeys, seenKeys) {
     var strict = row.title === 'Picked for you' || /^New on /.test(row.title);
     if (!row.items) return row;
-    return Object.assign({}, row, {items: row.items.filter(function (it) { return !it.tmdb || !(isSkipped(it) || (strict && isSeen(it))); })});
+    return Object.assign({}, row, {items: row.items.filter(function (it) { var k = it.tmdb && skey(it); return !it.tmdb || !(skipKeys[k] || (strict && seenKeys[k])); })});
   }
   // "Continue watching": what Trakt says you are in the middle of (when connected), then the titles you opened from here that you did not finish
   var cont = store('continueTrakt') || [];
@@ -514,11 +529,13 @@
   var rowsData = [], heroItems = [], base = [], rowProviders = [];
   var rowsTimer = 0;
   function buildRows() {
+    rowsStale = false;
     var extra = rowProviders.map(function (fn) { return fn(); }).filter(Boolean);
     // the apps come first, right under the featured titles: most evenings the plan is "open Netflix / YouTube", one press down
-    var head = base.slice(0, 2);
+    var head = base.slice(0, 2), skipKeys = {}, seenKeys = Object.assign({}, synced);   // sets: the rows hold hundreds of cards
+    skipped.forEach(function (x) { skipKeys[skey(x)] = 1; }); seen.forEach(function (x) { seenKeys[skey(x)] = 1; });
     if (head[1] && head[1].apps) head.reverse();
-    rowsData = head.concat([{title: 'Continue watching', items: continuing()}], extra, base.slice(2)).map(unwanted)
+    rowsData = head.concat([{title: 'Continue watching', items: continuing()}], extra, base.slice(2)).map(function (row) { return unwanted(row, skipKeys, seenKeys); })
       .filter(function (x) { return (x.apps || x.items).length; });
     if (base.length) render();
   }
@@ -544,7 +561,7 @@
   var CHECK = '<svg viewBox="0 0 24 24" style="width:50px;height:50px"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
   // The Apps tab in edit mode: the apps of the home screen on top, the hidden ones below, and a bar to choose what OK does on a tile:
   // hide / show it, or pick it up to put it elsewhere in the order.
-  var editMode = 'hide';
+  var editMode = 'hide', pendingRemove = '', pendingT = 0;
   function editTile() {
     var t = el('div', 'app f edit-tile', '<div class="disc">' + PENCIL + '</div><div class="cap">Edit apps</div>');
     t.onok = startEditing;
@@ -554,9 +571,9 @@
   function renderEditBar() {
     var bar = $('editbar'); bar.hidden = !editing; bar.innerHTML = '';
     if (!editing) return;
-    [['hide', 'Hide / show'], ['order', 'Reorder']].forEach(function (m) {
+    [['hide', 'Hide / show'], ['order', 'Reorder'], ['remove', 'Uninstall']].forEach(function (m, i) {
       var c = el('span', 'chip f' + (editMode === m[0] ? ' sel' : ''), m[1]);
-      c.onok = function () { endMove(); editMode = m[0]; renderEditBar(); buildNav(); focusEl(bar.children[m[0] === 'hide' ? 0 : 1]); };
+      c.onok = function () { endMove(); pendingRemove = ''; editMode = m[0]; renderEditBar(); buildNav(); focusEl(bar.children[i]); };
       bar.appendChild(c);
     });
     var done = el('span', 'chip f', 'Done'); done.onok = function () { setEditing(false); }; bar.appendChild(done);
@@ -566,13 +583,14 @@
     document.body.classList.toggle('editing', editing);
     if (!editing) endMove();
     editMode = 'hide';
-    var keep = view; render(); if (keep !== view) setView(keep);
+    buildGrid(); buildNav();   // only the grid: the rows behind it do not change by entering or leaving the edit mode
     if (editing) { pos.r = 1; pos.c = 0; focus(); }
     else { var tiles = document.querySelectorAll('.edit-tile'); for (var i = 0; i < tiles.length; i++) if (tiles[i].offsetParent) { focusEl(tiles[i]); break; } }
-    toast(editing ? 'Edit mode: choose Hide / show or Reorder, then OK on an app' : 'Done');
+    toast(editing ? 'Edit mode: choose Hide / show, Reorder or Uninstall, then OK on an app' : 'Done');
   }
   // OK on an app in edit mode.
   function editApp(a) {
+    if (editMode === 'remove') return uninstallApp(a);
     if (editMode === 'hide') {
       var hidden = store('appHidden') || [], i = hidden.indexOf(a.id);
       if (i < 0) hidden.push(a.id); else hidden.splice(i, 1);
@@ -584,6 +602,34 @@
       moving = a.id; focusApp(a.id); var t = document.querySelector('.focus'); if (t) t.classList.add('moving');
       toast('Left / right to move, OK when done');
     }
+  }
+  // Uninstall: a second OK on the same app within 4 s confirms (it cannot be undone from here: the app comes back from LG Content Store). The helper service does it, and only
+  // for apps the TV says are removable and that this setup does not depend on; the others get a message instead.
+  function uninstallApp(a) {
+    if (!onTV) return toast('Uninstalling needs the TV');
+    if (!a.removable) return toast(a.title + ' cannot be uninstalled');
+    if (pendingRemove !== a.id) {
+      pendingRemove = a.id; clearTimeout(pendingT); pendingT = setTimeout(function () { pendingRemove = ''; }, 4000);
+      return toast('Press OK again to uninstall ' + a.title);
+    }
+    pendingRemove = ''; clearTimeout(pendingT);
+    toast('Uninstalling ' + a.title + '…');
+    fetch(HELPER + '/uninstall', {method: 'POST', body: JSON.stringify({id: a.id})}).then(function (r) { return r.json(); }).then(function (r) {
+      if (!r.returnValue) return toast('Could not uninstall ' + a.title);
+      // gone from the TV: forget it here too (hidden, order) and draw the lists again
+      var hidden = (store('appHidden') || []).filter(function (id) { return id !== a.id; }), order = (store('appOrder') || []).filter(function (id) { return id !== a.id; });
+      store('appHidden', hidden); store('appOrder', order);
+      return loadApps().then(function () { refreshApps(); toast(a.title + ' uninstalled'); });
+    }, function () { toast('The TV service is not available'); });
+  }
+  // LG's own home screen, from the Apps tab. TV Home opens in its place everywhere else; the helper service lets LG's stay in front for a short while when asked here.
+  function lgHomeTile() {
+    var t = el('div', 'app f', '<div class="disc" style="background:#a50034"><svg viewBox="0 0 24 24" style="width:54px;height:54px"><path fill="currentColor" d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3L12 3z"/></svg></div><div class="cap">LG Home</div>');
+    t.onok = function () {
+      if (!onTV) return toast('LG Home needs the TV');
+      fetch(HELPER + '/lghome', {method: 'POST', body: '{}'}).then(function (r) { return r.json(); }).then(function (r) { if (!r.returnValue) toast('Could not open LG Home'); }, function () { toast('The TV service is not available'); });
+    };
+    return t;
   }
   // How far a horizontal strip slides so that the focused tile is in the middle of the screen. The strip starts at the left margin and
   // stops sliding at both ends, so the first and last tiles do not leave an empty gap. Shared by every strip (rows, search, details).
@@ -637,6 +683,7 @@
       // the Apps tab lists every app: the ones of the home screen, then (if any) the hidden ones in a list of their own
       shown.forEach(function (a) { g.appendChild(appTile(a)); });
       g.appendChild(editTile());
+      g.appendChild(lgHomeTile());
       if (hid.length) { g.appendChild(el('h3', 'gh', 'Hidden apps')); hid.forEach(function (a) { g.appendChild(appTile(a)); }); }
     }
     [].forEach.call(g.children, i18n);
@@ -864,6 +911,9 @@
     // The old layer is NOT hidden when the new one has faded in: it stays under it (the new one is opaque) and is reset only when it is reused.
     // Hiding it on a timer raced the CSS fade: on a slow CPU the fade can start late, and the old layer vanished halfway, showing a dark frame.
     // The next change waits for the fade to be over (its end event, or a safety timer), then goes on.
+    // The layer left under the new one is invisible but would keep its decoded bitmap (a 4K picture is ~32 MB, and the TV has no memory to spare): once it is covered,
+    // the picture is let go. Every change loads its picture into the free layer anyway, so nothing is lost.
+    function release(layer) { if (layer && layer.tagName === 'IMG') layer.removeAttribute('src'); }
     function whenFaded(layer, fn) {
       var done = false, t = 0;
       function end(e) { if (done || (e && (e.target !== layer || e.propertyName !== 'opacity'))) return; done = true; clearTimeout(t); layer.removeEventListener('transitionend', end); fn(); }
@@ -871,7 +921,7 @@
       t = setTimeout(end, FADE_MS + 700);
     }
     function finish(src, back, cur, isSharp) {
-      whenFaded(back, function () { busy = false; front = back; shown = src; sharp = isSharp; go(); scheduleHi(); });
+      whenFaded(back, function () { busy = false; front = back; shown = src; sharp = isSharp; release(cur); go(); scheduleHi(); });
     }
     // The picture is on screen and nobody has moved for a moment: fade to the full-size version (TMDB's original, often 3840x2160) behind it. It is only
     // fetched when the picture rests, so holding an arrow key never loads these big files, and the first change is as quick as before.
@@ -891,7 +941,7 @@
         back.style.transition = 'none'; back.style.opacity = '.01'; back.className = 'on';
         requestAnimationFrame(function () { requestAnimationFrame(function () {
           void back.offsetWidth; back.style.transition = ''; back.style.opacity = '';
-          whenFaded(back, function () { busy = false; front = back; hiDone = hi; go(); });
+          whenFaded(back, function () { busy = false; front = back; hiDone = hi; release(cur); go(); });
         }); });
       }, function () { busy = false; hiDone = hi; go(); });   // not available: keep the usual one
     }
@@ -1086,8 +1136,8 @@
     $('bg').style.opacity = v === 'home' ? 1 : 0;
     ['bgBlur', 'bgBlur2'].forEach(function (id) { $(id).style.visibility = v === 'home' || v === 'settings' || v === 'quick' ? '' : 'hidden'; });
     document.body.classList.toggle('scrolled', v !== 'home');
-    buildNav();
-    if (wasEditing) render();
+    if (v === 'home' && rowsStale) buildRows(); else buildNav();   // buildRows draws the rows and builds the navigation
+    if (wasEditing) buildGrid();
     if (v === 'apps' && !editing && !store('hintEdit')) { store('hintEdit', 1); toast('Hold OK on an app to hide or move it'); }
   }
   function activate(e) {
@@ -1246,7 +1296,8 @@
         });
     }).catch(function (e) { console.warn('weather', e); });
   }
-  weather(); setInterval(function () { if (!document.hidden) weather(); }, 15 * 60 * 1000);
+  setTimeout(weather, 2500);   // after the first screen: it is only a pill, and the home screen's requests come first
+  setInterval(function () { if (!document.hidden) weather(); }, 15 * 60 * 1000);
   $('avatar').textContent = C.NAME;
   if (S.liveTab === false) document.querySelector('[data-act=live]').classList.add('off');
   if (noAvatar()) $('avatar').classList.add('off');
@@ -1255,8 +1306,12 @@
   $('sdim').onclick = function () { closeSettings(); };
 
   // ---------- move / remove apps ----------
+  // The home rows are not drawn again while the Apps tab is up (editing the list: hide, move, uninstall, one press after another): nobody sees them, and rebuilding the
+  // whole home screen (~200 cards) for each press made the tab crawl. Only the grid is; the rows are built when the home screen comes back (see setView).
+  var rowsStale = false;
   function refreshApps() {
     base.forEach(function (row) { if (row.apps) row.apps = visibleApps(); });
+    if (view === 'apps') { rowsStale = true; buildGrid(); buildNav(); return; }
     buildRows();
   }
   function focusApp(id) { // put focus back on an app tile after re-rendering
@@ -1380,14 +1435,16 @@
   window.dispatchEvent(new Event('tvready'));
 
   // Relaunch (Home button, or opening TV Home again): appinfo's handlesRelaunch keeps the page alive
-  // instead of reloading it behind a splash, so bring ourselves forward and go back to the top of For you.
+  // instead of reloading it behind a splash, so bring ourselves forward. The focus stays on the card it was on (open an app, press Home: that app's card is still the
+  // selected one); it only starts over at the row of apps when the page that was up was another one than the home screen (the Apps tab, whose grid is not the home's).
+  // It used to reset the position after drawing the focus, so the screen showed one card selected and OK opened another.
   document.addEventListener('webOSRelaunch', function () {
     try { window.PalmSystem.activate(); } catch (e) { /* not on webOS */ }
     if (!$('qpanel').hidden) closeQuick();
     if (!$('spanel').hidden) { $('spanel').hidden = $('sdim').hidden = true; }
     while (views[view]) closeView();
-    if (view !== 'home') setView('home');
-    buildNav(); pos.r = startRow(); pos.c = 0;
+    if (view !== 'home') { setView('home'); buildNav(); pos.r = startRow(); pos.c = 0; focus(); }
+    else buildNav();
   });
 
   // ---------- boot ----------
@@ -1412,25 +1469,42 @@
   }
   var bgSeen = false;
   ['bgA', 'bgB'].forEach(function (id) { $(id).addEventListener('load', function () { if (!bgSeen) { bgSeen = true; mark('first-bg'); } }); });
-  var cached = store('homeCache');
+  var cached = store('homeCache'), HOME_FRESH = 30 * 60e3, homeFresh = false;
   mark('cache-parsed');
   var cachedSig = '';
   if (cached && cached.base && cached.base.length) {
     applyBest(cached.hero);
     heroItems = cached.hero.filter(fullOk);   // only titles known to have a sharp enough picture; the others wait for TMDB's answer below
     base = cached.base;
-    cachedSig = JSON.stringify({hero: heroItems, base: base});   // to tell later whether the fresh data is any different
+    // A screen drawn less than HOME_FRESH ago is good enough: no refresh at all (~30 requests saved, and none competing with a details page opened right away).
+    // Otherwise keep a copy to tell later whether the fresh data is any different.
+    homeFresh = Date.now() - (store('homeAt') || 0) < HOME_FRESH;
+    cachedSig = homeFresh ? 'fresh' : JSON.stringify({hero: heroItems, base: base});
     buildRows(); mark('rows-built'); showHero(); mark('hero-shown'); pos.r = startRow(); focus(); mark('cache-drawn'); booted();
-    if (heroItems.length < cached.hero.length) refineBest(cached.hero).then(function () {   // some were unknown (first start after an update): ask, then show the sharp ones
+    if (heroItems.length < cached.hero.length) refineBest(cached.hero, true).then(function () {   // some were unknown (first start after an update): ask, then show the sharp ones
       var ok = cached.hero.filter(fullOk);
       if (ok.length && !heroItems.length) { heroItems = ok; heroIdx = 0; showHero(); }
     });
   }
   var tries = 0, drawnEarly = false;
-  function loadHome() { return loadApps().then(function () {
-    if (cachedSig) { buildGrid(); if (view === 'apps') buildNav(); }   // the apps are known now (the cached draw had none)
+  // The list of providers of a region hardly ever changes: kept a week, so the first request of the refresh is not waited for.
+  function providersList() {
+    var key = 'providers.v1:' + C.REGION;
+    try { var c = JSON.parse(localStorage.getItem(key) || 'null'); if (c && Date.now() - c.at < 7 * 864e5) return Promise.resolve(c); } catch (e) { /* storage unavailable */ }
+    return lazyTmdb('watch/providers/tv', '&watch_region=' + C.REGION).then(function (pr) {
+      var c = {at: Date.now(), results: pr.results};
+      try { localStorage.setItem(key, JSON.stringify(c)); } catch (e) { /* full: asked again next time */ }
+      return c;
+    });
+  }
+  // The apps load beside the TMDB requests (they only meet where the rows are built).
+  var appsReady;
+  function loadHome() {
+    appsReady = appsReady || loadApps().then(function () {
+      if (cachedSig) { buildGrid(); if (view === 'apps') buildNav(); }   // the apps are known now (the cached draw had none)
+    });
     var safe = function (p) { return p.catch(function (e) { console.warn(e); return null; }); };
-    return safe(tmdb('watch/providers/tv', '&watch_region=' + C.REGION)).then(function (pr) {
+    return safe(providersList()).then(function (pr) {
       var providers = pr ? pr.results : [];
       var rowsFor = function (extra, titleOf) { return Promise.all(SERVICES.map(function (sv) { return safe(serviceRow(sv, providers, extra, titleOf && titleOf(sv))); })); };
       var pMine = providers.length ? safe(forYou(providers)) : null, pRated = providers.length ? safe(topRated(providers)) : null;
@@ -1440,14 +1514,16 @@
         var dup = {}, early = [];
         (x[0] || []).concat(x[1] || []).forEach(function (it) { var k = keyOf(it); if (!dup[k] && !isSeen(it) && !isSkipped(it)) { dup[k] = 1; early.push(it); } });
         if (!early.length || drawnEarly || cachedSig) return;
-        refineBest(early.slice(0, 24)).then(function () {
+        refineBest(early.slice(0, 24), true).then(function () {
           if (drawnEarly || cachedSig) return;
           drawnEarly = true;
+          return appsReady.then(function () {
           var inHero = {}, hero = early.slice(0, 24).filter(fullOk).slice(0, 6);
           hero.forEach(function (it) { inHero[keyOf(it)] = 1; });
           heroItems = hero;
           base = [{title: 'Picked for you', items: early.filter(function (it) { return !inHero[keyOf(it)]; })}, {title: 'Your apps', apps: visibleApps()}];
           buildRows(); showHero(); pos.r = startRow(); focus(); mark('early-drawn'); booted();
+          });
         });
       });
       return Promise.all([
@@ -1472,7 +1548,7 @@
       }
       // the featured titles are the first ones with a sharp full-screen picture (see MIN_FULL); the others stay in the row as cards
       var cand = picks.slice(0, 30);
-      return refineBest(cand).then(function () {
+      return Promise.all([refineBest(cand, true), appsReady]).then(function () {
       applyBest(cand);
       setTimeout(prefetchBest, 8000);
       var inHero = {}, hero = cand.filter(fullOk).slice(0, 6);
@@ -1487,17 +1563,20 @@
       mark('net-home-ready');
       // Same as what the cached screen already shows: nothing to rebuild (a rebuild throws away ~100 elements, decodes the images again
       // and can take the focus away)
-      if (cachedSig && JSON.stringify({hero: heroItems, base: base}) === cachedSig) { bake(); return; }
-      store('homeCache', {hero: heroItems, base: base});
+      if (cachedSig && JSON.stringify({hero: heroItems, base: base}) === cachedSig) { store('homeAt', Date.now()); bake(); return; }
+      store('homeCache', {hero: heroItems, base: base}); store('homeAt', Date.now());
       var first = !cached && !drawnEarly; // keep the user's place if they already started moving around the cached screen
       buildRows(); showHero(); booted();
       bake();
       if (first) { pos.r = startRow(); focus(); }
       });
     });
-  }); }
+  }
   mark('before-loadHome');
-  loadHome();
+  if (homeFresh) {
+    loadApps().then(function () { buildGrid(); if (view === 'apps') buildNav(); });
+    setTimeout(prefetchBest, 8000);   // the slideshow still learns its pictures
+  } else loadHome();
   mark('after-loadHome');
   // Back from the settings reloaded the page (a setting changed): put the quick settings back where the user left them.
   try { if (sessionStorage.getItem('reopenQuick')) { sessionStorage.removeItem('reopenQuick'); openQuick(); } } catch (e) { /* storage unavailable */ }

@@ -77,8 +77,16 @@
   function tid(x) { return x && x.ids && x.ids.tmdb; }
   function epLabel(e) { return e && e.season != null && e.number != null ? 'S' + e.season + ' E' + e.number : ''; }
   // a card for a Trakt title: TMDB gives the pictures and the text
+  // At most 3 TMDB calls at a time: ~40 at once (the sync below) fill the TV's few connections per host and a details page opened meanwhile waited behind them
+  var busy = 0, waiting = [];
+  function slot(fn) {
+    return new Promise(function (ok) {
+      function go() { busy++; ok(); }
+      busy < 3 ? go() : waiting.push(go);
+    }).then(fn).then(function (v) { busy--; if (waiting.length) waiting.shift()(); return v; }, function (e) { busy--; if (waiting.length) waiting.shift()(); throw e; });
+  }
   function card(type, id, extra) {
-    return TV.tmdb(type + '/' + id).then(function (m) { return Object.assign(TV.fromTmdb(m), extra || {}); }, function () { return null; });
+    return slot(function () { return TV.tmdb(type + '/' + id); }).then(function (m) { return Object.assign(TV.fromTmdb(m), extra || {}); }, function () { return null; });
   }
 
   // History, "Recently finished", "Continue watching". Everything watched becomes a "seen" key (never suggested again). For the 15 most recent
@@ -277,5 +285,7 @@
 
   // once in a while at start-up, when connected
   var last0 = TV.store('traktSync');
-  if (configured && tok && (!last0 || Date.now() - last0.at > SYNC_EVERY)) setTimeout(function () { sync(true); }, 8000);
+  // (not while a details page or another screen is open: a restart that lands on a details page needs the connection for itself)
+  function startSync() { if (TV.view() === 'home') sync(true); else setTimeout(startSync, 5000); }
+  if (configured && tok && (!last0 || Date.now() - last0.at > SYNC_EVERY)) setTimeout(startSync, 8000);
 })();

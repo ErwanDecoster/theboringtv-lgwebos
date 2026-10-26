@@ -1,0 +1,14 @@
+{
+  "id": "com.boring.tvhome.ambient",
+  "version": "1.0.0",
+  "vendor": "boring",
+  "type": "web",
+  "main": "index.html",
+  "title": "TV Home idle screen",
+  "icon": "icon.png",
+  "visible": false,
+  "defaultWindowType": "screenSaver",
+  "noSplashOnLaunch": true,
+  "bgColor": "#000000",
+  "resolution": "1920x1080"
+}

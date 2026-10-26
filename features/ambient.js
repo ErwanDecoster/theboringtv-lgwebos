@@ -41,6 +41,7 @@
       img.className = ''; void img.offsetWidth; // restart the Ken-Burns animation
       img.className = 'on kb' + (idx % 4);
       old.classList.remove('on');
+      setTimeout(function () { if (!old.classList.contains('on')) old.removeAttribute('src'); }, 2500);   // faded out: its decoded 4K bitmap (~32 MB) is let go
       cur = it; cap.firstChild.textContent = it.title;
       cap.lastChild.textContent = it.svc ? 'On ' + it.svc.name : it.src || '';
       flip = 1 - flip; idx++;
@@ -121,7 +122,7 @@
     if (!on) return;
     on = false; clearTimeout(slideT); clearInterval(tickT); clearTimeout(driftT); clearInterval(dimT);
     root.classList.remove('show');
-    setTimeout(function () { if (!on) { root.hidden = true; imgs[0].className = imgs[1].className = ''; } }, 600);
+    setTimeout(function () { if (!on) { root.hidden = true; imgs[0].className = imgs[1].className = ''; imgs[0].removeAttribute('src'); imgs[1].removeAttribute('src'); pre = null; } }, 600);   // hidden: both pictures are let go (~64 MB of decoded pixels)
   }
   TV.ambientNow = show;
 
@@ -129,19 +130,56 @@
   // In front of another app (or with TV Home behind it), LG's screensaver is what would start. On a rooted TV the helper service refuses that request and launches TV Home with
   // {ambient: true}: this page then shows its idle screen. And the helper is told, now and after each change of Settings → Ambient mode, whether it should do that (not when Off).
   function tellHelper(path, body) {
-    if (!TV.onTV) return;
-    try { fetch('http://127.0.0.1:45621' + path, {method: 'POST', body: JSON.stringify(body || {})}).catch(function () { /* no helper: LG's screensaver stays */ }); } catch (e) { /* none */ }
+    if (!TV.onTV) return Promise.resolve(null);
+    try {
+      return fetch('http://127.0.0.1:45621' + path, {method: 'POST', body: JSON.stringify(body || {})}).then(function (r) { return r.json(); }).catch(function () { return null; });   // no helper: LG's screensaver stays
+    } catch (e) { return Promise.resolve(null); }
   }
-  function syncHelper() { tellHelper('/ambient', {on: +TV.S.ambient > 0}); }
+  // The light idle screen (ambient/, an app of its own: see tools/tv-service) cannot know the home screen's pictures, so they go to the helper along with the setting, each with
+  // its title (a plain copy: OK on one there opens its page, and TV Home, often closed by the system in the meantime, starts cold and knows nothing).
+  // The ~60 KB list is only built and sent when it changed: each sync sends the setting and a short signature of the list, and the helper answers "need" when it holds no list
+  // or another one (it was restarted, or the home screen changed).
+  function plain(it) { try { return JSON.parse(JSON.stringify(it)); } catch (e) { return null; } }
+  function entry(it) { return {img: pic(it), title: it.title, sub: it.svc ? 'On ' + it.svc.name : it.src || ''}; }
+  function sigOf(l, head) {                                   // order-free (the list is shuffled at each collect), so an unchanged home screen gives the same signature
+    var s = head + l.map(function (it) { var e = entry(it); return e.img + '\n' + e.title + '\n' + e.sub; }).sort().join('\n'), h = 5381;
+    for (var i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36) + '.' + l.length;
+  }
+  function payload(l) {
+    var w = document.getElementById('weather');
+    return {rev: Date.now(), clock24: !!TV.S.clock24, locale: window.UI_LOCALE || 'en-US', dim: TV.S.ambientDim || 'std', weather: w && !w.hidden ? w.innerHTML : '',
+      items: l.slice(0, 40).map(function (it) { var e = entry(it); e.it = plain(it); return e; })};
+  }
+  function syncHelper() {
+    var on = +TV.S.ambient > 0;
+    if (!on) return void tellHelper('/ambient', {on: false});
+    var l = collect();
+    if (!l.length) return void tellHelper('/ambient', {on: true});
+    var w = document.getElementById('weather');
+    var sig = sigOf(l, [!!TV.S.clock24, window.UI_LOCALE || 'en-US', TV.S.ambientDim || 'std', w && !w.hidden ? w.innerHTML : ''].join('|') + '\n');
+    tellHelper('/ambient', {on: true, sig: sig}).then(function (r) {
+      if (r && r.need) tellHelper('/ambient', {on: true, sig: sig, data: payload(l)});
+    });
+  }
   window.addEventListener('tvsettings', syncHelper);
-  setTimeout(syncHelper, 3000); setInterval(syncHelper, 2 * 60e3);           // again from time to time: the helper forgets it when it restarts
-  function launchedForAmbient() {
-    var raw; try { raw = window.PalmSystem && window.PalmSystem.launchParams; } catch (e) { return false; }
-    if (!raw) return false;
-    var p; try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return false; }
-    return !!(p && p.ambient && Date.now() - (p.at || 0) < 20000);           // recent: a stale parameter must not start it on every later relaunch
+  setTimeout(syncHelper, 3000); setTimeout(syncHelper, 20000); setTimeout(syncHelper, 60000); setInterval(function () { if (document.visibilityState === 'visible') syncHelper(); }, 2 * 60e3);           // again from time to time (the helper forgets everything when it restarts); a hidden page cannot have changed
+  function launchParams() {
+    var raw; try { raw = window.PalmSystem && window.PalmSystem.launchParams; } catch (e) { return null; }
+    if (!raw) return null;
+    var p; try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return null; }
+    return p && Date.now() - (p.at || 0) < 20000 ? p : null;                // recent: a stale parameter must not start it on every later relaunch
+  }
+  function launchedForAmbient() { var p = launchParams(); return !!(p && p.ambient); }
+  var opened = 0;
+  function openFromAmbient() {                                               // OK on a title of the light idle screen
+    var p = launchParams();
+    if (!p || !p.ambientOpen || !p.item || p.at === opened) return;
+    opened = p.at;
+    setTimeout(function () { TV.itemDetails(p.item); }, 600);                 // after a cold start the home screen is still being drawn
   }
   function startForLaunch() {
+    openFromAmbient();
     if (!launchedForAmbient()) return;
     var tries = 0;
     (function again() {
@@ -181,5 +219,5 @@
   setInterval(function () {
     if (+TV.S.ambient && document.visibilityState === 'visible' && Date.now() - last > TV.S.ambient * 60000) show();
   }, 10000);
-  document.addEventListener('visibilitychange', function () { last = Date.now(); if (document.visibilityState !== 'visible') hide(); });
+  document.addEventListener('visibilitychange', function () { last = Date.now(); if (document.visibilityState !== 'visible') hide(); else syncHelper(); });
 })();

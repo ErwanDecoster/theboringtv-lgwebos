@@ -14,7 +14,7 @@
     // top bar, quick settings, boot
     'Getting your shows ready...': 'Préparation de vos programmes...', 'For you': 'Pour vous', 'Live': 'En direct', 'Search': 'Recherche', 'Apps': 'Applications',
     'Open': 'Ouvrir', 'Your apps': 'Vos applications', 'All settings': 'Tous les réglages', 'Quick settings': 'Réglages rapides', 'Settings': 'Réglages',
-    'Screensaver': 'Économiseur', 'Screen off': 'Écran éteint', 'Any key wakes it': 'Une touche rallume', 'Audio keeps playing': 'Le son continue', 'Settings applied': 'Réglages appliqués', 'Press OK again to confirm': 'Appuyez de nouveau sur OK pour confirmer', 'Hold OK on an app to hide or move it': 'Maintenez OK sur une app pour la masquer ou la déplacer', 'Loading…': 'Chargement…', 'Accessibility': 'Accessibilité',
+    'Screensaver': 'Économiseur', 'Screen off': 'Écran éteint', 'Any key wakes it': 'Une touche rallume', 'Audio keeps playing': 'Le son continue', 'Settings applied': 'Réglages appliqués', 'Uninstall': 'Désinstaller', 'LG Home': 'Accueil LG', 'Uninstalling needs the TV': 'La désinstallation nécessite la télé', 'LG Home needs the TV': 'L’accueil LG nécessite la télé', 'Could not open LG Home': 'Impossible d’ouvrir l’accueil LG', 'Press OK again to confirm': 'Appuyez de nouveau sur OK pour confirmer', 'Hold OK on an app to hide or move it': 'Maintenez OK sur une app pour la masquer ou la déplacer', 'Loading…': 'Chargement…', 'Accessibility': 'Accessibilité',
     'Audio output': 'Sortie audio', 'Picture': 'Image', 'Sound mode': 'Mode son', 'Brightness': 'Luminosité', 'Inputs': 'Entrées', 'Needs root': 'Nécessite le root',
     'Not connected': 'Non connecté', 'Connected': 'Connecté', 'Home Wi-Fi': 'Wi-Fi maison', 'Muted': 'Muet', 'On': 'Activé', 'Off': 'Désactivé', 'Auto': 'Auto',
     'TV speaker': 'Haut-parleurs TV', 'Bluetooth soundbar': 'Barre de son Bluetooth', 'Optical': 'Optique', 'Headphones': 'Casque', 'TV + external': 'TV + externe',
@@ -60,7 +60,7 @@
     'Family-friendly titles only; hides Browser, ZEE5, Apps Store and Settings': 'Uniquement des titres tout public ; masque le navigateur, ZEE5, le Store et les réglages',
     // messages
     'Waiting for the internet…': 'En attente d’Internet...', 'Hidden apps are back': 'Les applications masquées sont de retour', 'Continue watching cleared': 'Historique effacé',
-    'Edit mode: choose Hide / show or Reorder, then OK on an app': 'Mode édition : choisissez Masquer / afficher ou Réorganiser, puis OK sur une application', 'Hide / show': 'Masquer / afficher', 'Transcribing…': 'Transcription…', 'The speech server is not available': 'Le serveur de reconnaissance n’est pas joignable', 'The microphone is busy': 'Le micro est déjà utilisé', 'The TV service is not available': 'Le service de la télé n’est pas disponible', 'Voice dictation failed': 'La dictée vocale a échoué', 'Voice dictation could not reach Home Assistant': 'La dictée vocale n’a pas pu joindre Home Assistant', 'Listening…': 'Je vous écoute…', 'Microphone not allowed': 'Micro non autorisé', 'Voice dictation is not allowed on this TV': 'La dictée vocale n’est pas autorisée sur cette télé', 'Voice dictation could not reach its service': 'La dictée vocale n’a pas pu joindre son service', 'Nothing heard': 'Rien entendu', 'No microphone available': 'Aucun micro disponible', 'Language not supported for dictation': 'Langue non prise en charge pour la dictée', 'Voice dictation could not start': 'La dictée vocale n’a pas pu démarrer', 'Reorder': 'Réorganiser', 'On the home screen': 'Sur l’accueil', 'Hidden apps': 'Applications masquées', 'No hidden app': 'Aucune application masquée', 'Show it on the home screen first': 'Affichez-la d’abord sur l’accueil', 'Left / right to move, OK when done': 'Gauche / droite pour déplacer, OK pour terminer',
+    'Edit mode: choose Hide / show, Reorder or Uninstall, then OK on an app': 'Mode édition : choisissez Masquer / afficher, Réorganiser ou Désinstaller, puis OK sur une application', 'Hide / show': 'Masquer / afficher', 'Transcribing…': 'Transcription…', 'The speech server is not available': 'Le serveur de reconnaissance n’est pas joignable', 'The microphone is busy': 'Le micro est déjà utilisé', 'The TV service is not available': 'Le service de la télé n’est pas disponible', 'Voice dictation failed': 'La dictée vocale a échoué', 'Voice dictation could not reach Home Assistant': 'La dictée vocale n’a pas pu joindre Home Assistant', 'Listening…': 'Je vous écoute…', 'Microphone not allowed': 'Micro non autorisé', 'Voice dictation is not allowed on this TV': 'La dictée vocale n’est pas autorisée sur cette télé', 'Voice dictation could not reach its service': 'La dictée vocale n’a pas pu joindre son service', 'Nothing heard': 'Rien entendu', 'No microphone available': 'Aucun micro disponible', 'Language not supported for dictation': 'Langue non prise en charge pour la dictée', 'Voice dictation could not start': 'La dictée vocale n’a pas pu démarrer', 'Reorder': 'Réorganiser', 'On the home screen': 'Sur l’accueil', 'Hidden apps': 'Applications masquées', 'No hidden app': 'Aucune application masquée', 'Show it on the home screen first': 'Affichez-la d’abord sur l’accueil', 'Left / right to move, OK when done': 'Gauche / droite pour déplacer, OK pour terminer',
     'Not supported on this TV': 'Non pris en charge sur cette TV', 'Needs the TV Home service (rooted TV)': 'Nécessite le service TV Home (TV rootée)', 'Could not look up where to watch': 'Impossible de chercher où regarder',
     'Could not load details': 'Impossible de charger les détails', 'Added to your watchlist': 'Ajouté à « À voir »', 'Removed from your watchlist': 'Retiré de « À voir »',
     // seen / not interested, Trakt
@@ -136,6 +136,11 @@
     [/^Could not open (.*)$/, function (m) { return 'Impossible d’ouvrir ' + m[1]; }],
     [/^Would open (.*)$/, function (m) { return 'Ouvrirait ' + m[1]; }],
     [/^Volume: (.*)$/, function (m) { return 'Volume : ' + m[1]; }],
+    [/^Press OK again to uninstall (.*)$/, function (m) { return 'Appuyez de nouveau sur OK pour désinstaller ' + m[1]; }],
+    [/^Uninstalling (.*)…$/, function (m) { return 'Désinstallation de ' + m[1] + '…'; }],
+    [/^(.*) uninstalled$/, function (m) { return m[1] + ' désinstallée'; }],
+    [/^(.*) cannot be uninstalled$/, function (m) { return m[1] + ' ne peut pas être désinstallée'; }],
+    [/^Could not uninstall (.*)$/, function (m) { return 'Impossible de désinstaller ' + m[1]; }],
     [/^(.*) hidden from the home screen$/, function (m) { return m[1] + ' masquée de l’accueil'; }],
     [/^(.*) shown on the home screen$/, function (m) { return m[1] + ' affichée sur l’accueil'; }],
     [/^(.*) removed\. Settings → Show hidden apps brings it back$/, function (m) { return m[1] + ' retiré. Réglages → Afficher les applications masquées pour le récupérer'; }]
@@ -187,13 +192,15 @@
 
   function start() {
     walk(document.body);
-    new MutationObserver(function (list) {
+    var obs = new MutationObserver(function (list) {
       list.forEach(function (mu) {
         if (mu.type === 'characterData') { var p = mu.target.parentNode; if (p && !(p.matches && p.closest && inSkipped(p))) walk(mu.target); }
         else if (mu.type === 'attributes') walk(mu.target);
         else mu.addedNodes.forEach(function (n) { if (n.nodeType === 1 && n.hasAttribute('data-i18n')) return; if (!(n.nodeType === 1 && n.parentNode && n.parentNode.closest && inSkipped(n.parentNode))) walk(n); });
       });
-    }).observe(document.body, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title']});
+      obs.takeRecords();   // our own text and title writes just queued records: they would only walk the same nodes again (the answer is already in place)
+    });
+    obs.observe(document.body, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title']});
   }
   if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();

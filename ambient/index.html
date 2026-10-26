@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TV Home idle screen</title>
+<meta name="viewport" content="width=1920, height=1080">
+<style>
+/* TV Home's idle screen as a window of its own, over whatever app is open (see tools/tv-service: a whole TV Home started in front of a music app made the TV suspend it). Same look as
+   features/ambient.css, nothing else. */
+html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; font-family: sans-serif; color: #e8eaed; }
+img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 2s ease; will-change: transform, opacity; }
+img.on { opacity: 1; }
+img.kb0 { animation: kb0 16s linear both; }
+img.kb1 { animation: kb1 16s linear both; }
+img.kb2 { animation: kb2 16s linear both; }
+img.kb3 { animation: kb3 16s linear both; }
+@keyframes kb0 { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.08) translate(-1.5%, -1%); } }
+@keyframes kb1 { from { transform: scale(1.08) translate(-1.5%, 1%); } to { transform: scale(1.03) translate(1%, 0); } }
+@keyframes kb2 { from { transform: scale(1.03) translate(1.5%, 0); } to { transform: scale(1.09) translate(-1%, 1%); } }
+@keyframes kb3 { from { transform: scale(1.09) translate(1%, -1%); } to { transform: scale(1.03) translate(-1%, 1%); } }
+#scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 360px; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+.clock, .title { position: absolute; bottom: 64px; z-index: 1; text-shadow: 0 2px 14px rgba(0,0,0,.65); will-change: transform; }
+.clock { left: 88px; }
+.clock b { display: block; font-size: 120px; font-weight: 700; line-height: 1; letter-spacing: -2px; }
+.sub { display: flex; align-items: center; margin-top: 12px; font-size: 30px; opacity: .9; }
+.wx { display: flex; align-items: center; margin-left: 34px; font-weight: 500; }
+.wx:empty { display: none; }
+.wx svg { width: 36px; height: 36px; margin-right: 10px; }
+.title { right: 88px; max-width: 760px; text-align: right; }
+.title b { display: block; font-size: 30px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title span { display: block; margin-top: 6px; font-size: 22px; opacity: .7; }
+#dim { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; opacity: 0; z-index: 3; pointer-events: none; transition: opacity 15s linear; }
+</style>
+</head>
+<body>
+<img alt=""><img alt="">
+<div id="scrim"></div>
+<div class="clock" id="clockBox"><b id="clock"></b><div class="sub"><span id="date"></span><span class="wx" id="wx"></span></div></div>
+<div class="title" id="titleBox"><b id="ttl"></b><span id="svc"></span></div>
+<div id="dim"></div>
+<script>
+(function () {
+  var HELPER = 'http://127.0.0.1:45621';
+  var imgs = document.getElementsByTagName('img'), clockEl = document.getElementById('clock'), dateEl = document.getElementById('date'), wxEl = document.getElementById('wx'),
+    clockBox = document.getElementById('clockBox'), titleBox = document.getElementById('titleBox'), ttl = document.getElementById('ttl'), svc = document.getElementById('svc'), dimEl = document.getElementById('dim');
+  var D = null, list = [], idx = 0, flip = 0, cur = -1, slideT, shownAt = Date.now(), gone = false, fails = 0;
+
+  function call(path, body, done) {
+    var x = new XMLHttpRequest();
+    x.open(body === undefined ? 'GET' : 'POST', HELPER + path);
+    x.timeout = 4000;
+    x.onload = function () { var r = null; try { r = JSON.parse(x.responseText); } catch (e) { /* none */ } done && done(r); };
+    x.onerror = x.ontimeout = function () { done && done(null); };
+    x.send(body === undefined ? null : JSON.stringify(body));
+  }
+
+  // ---------- clock ----------
+  function tick() {
+    var d = new Date(), h = d.getHours();
+    var time = (D.clock24 ? ('0' + h).slice(-2) : h % 12 || 12) + ':' + ('0' + d.getMinutes()).slice(-2);
+    if (time === clockEl.textContent) return;                 // the clock is checked every 10 s, but the screen is only touched when the minute changes
+    clockEl.textContent = time;
+    var date = d.toLocaleDateString(D.locale || 'en-US', {weekday: 'long', month: 'long', day: 'numeric'});
+    dateEl.textContent = date.charAt(0).toUpperCase() + date.slice(1);
+  }
+
+  // ---------- slideshow ----------
+  function slide() {
+    if (gone) return;
+    var k = idx % list.length, it = list[k], img = imgs[flip], old = imgs[1 - flip], src = it.img;
+    img.onload = function () {
+      if (gone) return;
+      img.className = ''; void img.offsetWidth;               // restart the Ken-Burns animation
+      img.className = 'on kb' + (idx % 4);
+      old.classList.remove('on');
+      setTimeout(function () { if (!old.classList.contains('on')) old.removeAttribute('src'); }, 2500);   // faded out: its decoded 4K bitmap (~32 MB) is let go
+      fails = 0; cur = k; ttl.textContent = it.title || ''; svc.textContent = it.sub || '';
+      flip = 1 - flip; idx++;
+      slideT = setTimeout(slide, 12000);
+    };
+    img.onerror = function () {
+      if (/\/original\//.test(src)) { src = src.replace('/original/', '/w1280/'); img.src = src; return; }   // the full-size picture did not come: the 1280 one of the same art
+      if (++fails >= Math.min(list.length, 8)) { gone = true; call('/ambient/failed', {}); return; }   // none of the pictures comes (no network?): never a bare screen, LG's one is let through
+      idx++; slideT = setTimeout(slide, 500);
+    };
+    img.src = src;
+  }
+
+  // ---------- dimming (same steps as features/ambient.js) ----------
+  var DIM_MAX = {light: .45, std: .72, strong: .85}, DIM_STEPS = [[0, .42], [60e3, .62], [300e3, .82], [1200e3, 1]];
+  function dimNow() {
+    var ms = Date.now() - shownAt, max = DIM_MAX[D.dim] || DIM_MAX.std, share = DIM_STEPS[0][1];
+    DIM_STEPS.forEach(function (s) { if (ms >= s[0]) share = s[1]; });
+    var o = +(max * share).toFixed(2);
+    if (o !== dimNow.last) dimEl.style.opacity = dimNow.last = o;       // the steps are minutes apart: most checks change nothing
+  }
+
+  // ---------- slow random drift (same zone and rhythm as features/ambient.js) ----------
+  var ZONE = {x: [0, 56], y: [-36, 0], minStep: 24}, MOVE_MS = [150000, 300000], REST_MS = [120000, 300000];
+  var pos = (function () {
+    try { var d = JSON.parse(localStorage.getItem('ambDrift2')); if (d && isFinite(d.x) && isFinite(d.y)) return {x: Math.min(Math.max(d.x, ZONE.x[0]), ZONE.x[1]), y: Math.min(Math.max(d.y, ZONE.y[0]), ZONE.y[1])}; } catch (e) { /* none yet */ }
+    return {x: 0, y: 0};
+  })();
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(from) {
+    var p;
+    for (var i = 0; i < 12; i++) {
+      p = {x: Math.round(rnd(ZONE.x[0], ZONE.x[1])), y: Math.round(rnd(ZONE.y[0], ZONE.y[1]))};
+      if (Math.sqrt(Math.pow(p.x - from.x, 2) + Math.pow(p.y - from.y, 2)) >= ZONE.minStep) break;
+    }
+    return p;
+  }
+  function place(el, p, ms) { el.style.transition = ms ? 'transform ' + ms + 'ms ease-in-out' : 'none'; el.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)'; }
+  function apply(p, ms) { place(clockBox, {x: p.x, y: p.y}, ms); place(titleBox, {x: -p.x, y: p.y}, ms); }
+  function wander() {
+    if (gone) return;
+    pos = pick(pos);
+    var ms = Math.round(rnd(MOVE_MS[0], MOVE_MS[1]));
+    apply(pos, ms);
+    try { localStorage.setItem('ambDrift2', JSON.stringify(pos)); } catch (e) { /* storage unavailable */ }
+    setTimeout(wander, ms + rnd(REST_MS[0], REST_MS[1]));
+  }
+
+  // ---------- leaving ----------
+  // Any key (or click, or the pointer moving) ends it; OK (or a click) on a title, once it has been up 1.5 s, also opens that title's page in TV Home. The helper closes this app.
+  function leave(open) {
+    if (gone) return;
+    gone = true; clearTimeout(slideT);
+    call('/ambient/leave', typeof open === 'number' ? {open: open} : {});
+    setTimeout(function () { try { window.close(); } catch (e) { /* the helper closes it */ } }, 1500);
+  }
+  function input(ev) {
+    if (ev.type === 'mousemove' && Date.now() - shownAt < 800) return;     // jitter as it appears
+    ev.preventDefault && ev.preventDefault();
+    var opens = Date.now() - shownAt > 1500 && cur >= 0 && ((ev.type === 'keydown' && ev.keyCode === 13 && !ev.repeat) || ev.type === 'mousedown');
+    leave(opens ? cur : undefined);
+  }
+  ['keydown', 'mousedown', 'wheel', 'mousemove'].forEach(function (t) { window.addEventListener(t, input, true); });
+
+  // ---------- start ----------
+  var tries = 0;
+  (function load() {
+    call('/ambient/data', undefined, function (r) {
+      if (r && r.returnValue && r.items && r.items.length) {
+        D = r; list = r.items; shownAt = Date.now();
+        wxEl.innerHTML = r.weather || '';
+        tick(); setInterval(tick, 10000);
+        dimEl.style.transition = 'none'; dimEl.style.opacity = 0; void dimEl.offsetWidth; dimEl.style.transition = ''; dimNow.last = 0; dimNow(); setInterval(dimNow, 20000);
+        apply(pos, 0); setTimeout(wander, rnd(30000, 90000));
+        slide();
+        return;
+      }
+      if (++tries < 5) return setTimeout(load, 800);
+      call('/ambient/failed', {});                                       // never a bare black screen: LG's screensaver is let through
+    });
+  })();
+})();
+</script>
+</body>
+</html>

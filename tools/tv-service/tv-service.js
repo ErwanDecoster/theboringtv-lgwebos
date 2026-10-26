@@ -16,6 +16,9 @@ var http = require('http');
 var fs = require('fs');
 var cp = require('child_process');
 var net = require('net');
+var os = require('os');
+var https = require('https');
+var urlLib = require('url');
 
 var HOST = '127.0.0.1';
 var PORT = 45621;
@@ -28,13 +31,26 @@ var AUDIO = 'luna://com.webos.service.audio/master/';
 var POWER = 'luna://com.webos.service.tvpower/power/';
 var APPMGR = 'luna://com.webos.applicationManager/';
 
+// Two logs. /tmp (above) is the working one and is emptied at every boot; KEEP is the same story minus the start-up timings, on the TV's flash, so it survives a reboot:
+// after a boot where the helper never ran, the previous boot's lines are still there (service.log, and service.log.1 when it has rolled over at 100 KB).
+var KEEP = __dirname + '/service.log';
+// The sizes are counted here: a stat() of both files at every line was two more system calls on flash for each of them.
+var logSize = 0, keepSize = 0;
+try { keepSize = fs.statSync(KEEP).size; } catch (e) { /* none yet */ }
 function log (message) {
 	try {
-		fs.appendFileSync(LOG, new Date().toISOString() + ' ' + message + '\n');
-		if (fs.statSync(LOG).size > 40000) fs.writeFileSync(LOG, '');
+		var line = new Date().toISOString() + ' ' + message + '\n';
+		fs.appendFileSync(LOG, line);
+		if ((logSize += line.length) > 40000) { fs.writeFileSync(LOG, ''); logSize = 0; }
+		if (message.indexOf('perf ') !== 0) {
+			fs.appendFileSync(KEEP, line);
+			if ((keepSize += line.length) > 100000) { fs.renameSync(KEEP, KEEP + '.1'); keepSize = 0; }
+		}
 	} catch (e) { /* the log is a convenience */ }
 }
 
+log('start: helper v' + VERSION + ', pid ' + process.pid + ', the TV has been up ' + Math.round(os.uptime()) + ' s');       // tells a boot where this line is missing from one where the helper never started
+['SIGTERM', 'SIGINT', 'SIGHUP'].forEach(function (sig) { process.on(sig, function () { log('stop: ' + sig); flushAmbient(); process.exit(0); }); });
 process.on('uncaughtException', function (e) { log('uncaught: ' + (e && e.stack || e)); });
 process.on('unhandledRejection', function (e) { log('unhandled: ' + (e && e.stack || e)); });
 
@@ -73,9 +89,23 @@ function usablePath (p) {
 	return typeof p === 'string' && /^\/[A-Za-z0-9._\/+@ -]+\.(png|jpg|jpeg|svg|webp)$/i.test(p) && p.indexOf('..') === -1;
 }
 
+// Which apps may be uninstalled from TV Home: the ones the TV itself says are removable and are not part of the system, minus the ones this setup depends on
+// (TV Home, its idle screen, the Homebrew Channel that starts this service at every boot). Value: where it is installed (the removal call differs for developer-mode apps).
+var KEEP_APPS = ['com.boring.tvhome', 'com.boring.tvhome.ambient', 'org.webosbrew.hbchannel', SELF_APP];
+function removableApps () {
+	return luna(APPMGR + 'listApps', {}).then(function (r) {
+		var can = {};
+		(r.apps || []).forEach(function (a) {
+			if (a.removable === true && a.systemApp !== true && a.id && a.id.indexOf('com.webos.') !== 0 && KEEP_APPS.indexOf(a.id) < 0) can[a.id] = /^\/media\/developer\//.test(a.folderPath || '') ? 'dev' : 'store';
+		});
+		return can;
+	});
+}
+
 function listApps () {
 	if (Date.now() - appsCache.at < APPS_TTL_MS && appsCache.apps.length) return Promise.resolve(appsCache.apps);
-	return luna(APPMGR + 'listLaunchPoints', {}).then(function (r) {
+	return Promise.all([luna(APPMGR + 'listLaunchPoints', {}), removableApps()]).then(function (both) {
+		var r = both[0], can = both[1];
 		if (!r.launchPoints) return appsCache.apps;
 		var paths = {};
 		var apps = r.launchPoints
@@ -84,7 +114,7 @@ function listApps () {
 				// the biggest the TV offers first (192 px, sometimes more): the tiles are drawn at 150-170 px
 				var icon = [p.extraLargeIcon, p.largeIcon, p.mediumLargeIcon, p.icon].filter(usablePath)[0];
 				if (icon) paths[p.id] = icon.replace('/./', '/');
-				return {id: p.id, title: p.title, color: p.bgColor || p.iconColor || null, icon: !!icon};
+				return {id: p.id, title: p.title, color: p.bgColor || p.iconColor || null, icon: !!icon, removable: !!can[p.id]};
 			});
 		iconPaths = paths;
 		appsCache = {at: Date.now(), apps: apps};
@@ -218,42 +248,50 @@ function volume (action) {
 	return luna(calls[action][0], calls[action][1]).then(function (r) { return r.returnValue === false ? r : state(); });
 }
 
-// The screen can be turned off while the sound keeps playing. Any remote key then turns it back on;
-// the input devices are only watched while the screen is off.
+// The screen can be turned off while the sound keeps playing. Any remote key then turns it back on (see onKeyDown).
 var screenOff = false;
-var watcher = null;
-var EV_KEY = 1;
-var EVENT_SIZE = 16;           // 32-bit struct input_event
-
-function stopWatching () {
-	if (watcher) { clearInterval(watcher.timer); watcher.fds.forEach(function (fd) { try { fs.closeSync(fd); } catch (e) { /* closed */ } }); watcher = null; }
-}
 
 function screenOn () {
 	screenOff = false;
-	stopWatching();
 	return luna(POWER + 'turnOnScreen', {});
 }
 
+// ---------- the remote's keys ----------
+
+// One reader of /dev/input for everything that reacts to a key (wake from "screen off", Home, colour buttons, leaving the idle screen): the devices are opened once and
+// polled by one timer. The events are only READ (nothing is grabbed or changed). A device that stops answering (unplugged) is dropped instead of failing at every tick.
+var EV_KEY = 1;
+var EVENT_SIZE = 16;           // 32-bit struct input_event
+var KEY_POLL_MS = 50;
+
 function watchKeys () {
-	stopWatching();
 	var fds = [];
 	try {
 		fs.readdirSync('/dev/input').filter(function (f) { return f.indexOf('event') === 0; }).forEach(function (f) {
 			try { fds.push(fs.openSync('/dev/input/' + f, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK)); } catch (e) { /* skip */ }
 		});
-	} catch (e) { log('cannot read /dev/input: ' + e.message); }
+	} catch (e) { return log('keys: cannot read /dev/input: ' + e.message); }
+	log('keys: watching ' + fds.length + ' input devices');
 	var buf = Buffer.alloc(EVENT_SIZE * 64);
-	var timer = setInterval(function () {
-		for (var i = 0; i < fds.length; i++) {
+	setInterval(function () {
+		for (var i = fds.length - 1; i >= 0; i--) {
 			var n = 0;
-			try { n = fs.readSync(fds[i], buf, 0, buf.length, null); } catch (e) { continue; }   // EAGAIN: nothing waiting
+			try { n = fs.readSync(fds[i], buf, 0, buf.length, null); }
+			catch (e) {
+				if (e.code !== 'EAGAIN') { try { fs.closeSync(fds[i]); } catch (e2) { /* closed */ } fds.splice(i, 1); }   // EAGAIN: nothing waiting
+				continue;
+			}
 			for (var o = 0; o + EVENT_SIZE <= n; o += EVENT_SIZE) {
-				if (buf.readUInt16LE(o + 8) === EV_KEY && buf.readInt32LE(o + 12) === 1) { log('key pressed, screen on'); screenOn(); return; }
+				if (buf.readUInt16LE(o + 8) === EV_KEY && buf.readInt32LE(o + 12) === 1) onKeyDown(buf.readUInt16LE(o + 10));      // a key going down
 			}
 		}
-	}, 50);
-	watcher = {fds: fds, timer: timer};
+	}, KEY_POLL_MS);
+}
+
+function onKeyDown (code) {
+	if (screenOff) { log('key pressed, screen on'); screenOn(); }
+	if (code === HOME_CODE) { log('home key pressed'); onHome(); } else onColorKey(code);
+	onAnyKey(code);
 }
 
 function setScreen (on) {
@@ -261,7 +299,6 @@ function setScreen (on) {
 	return luna(POWER + 'turnOffScreen', {}).then(function (r) {
 		if (r.returnValue === false) return r;
 		screenOff = true;
-		watchKeys();
 		log('screen off');
 		return state();
 	});
@@ -289,24 +326,70 @@ function onHome () {
 	}, 150);
 }
 
-function watchHome () {
-	var fds = [];
-	try {
-		fs.readdirSync('/dev/input').filter(function (f) { return f.indexOf('event') === 0; }).forEach(function (f) {
-			try { fds.push(fs.openSync('/dev/input/' + f, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK)); } catch (e) { /* skip */ }
-		});
-	} catch (e) { log('home key: cannot read /dev/input: ' + e.message); return; }
-	log('home key: watching ' + fds.length + ' input devices');
-	var buf = Buffer.alloc(EVENT_SIZE * 64);
-	setInterval(function () {
-		for (var i = 0; i < fds.length; i++) {
-			var n = 0;
-			try { n = fs.readSync(fds[i], buf, 0, buf.length, null); } catch (e) { continue; }   // EAGAIN: nothing waiting
-			for (var o = 0; o + EVENT_SIZE <= n; o += EVENT_SIZE) {
-				if (buf.readUInt16LE(o + 8) === EV_KEY && buf.readInt32LE(o + 12) === 1 && buf.readUInt16LE(o + 10) === HOME_CODE) { log('home key pressed'); onHome(); }
-			}
-		}
-	}, 30);
+// ---------- the colour buttons (red, green, yellow, blue) ----------
+// The remote's four colour buttons do nothing in TV Home. With "keys" in events.json (same file and webhook as the power events) a press is sent to Home Assistant as
+// {"event":"key","key":"red",...}, whichever app is in front, and an automation does what it likes with it. "keyCodes" overrides the Linux key codes if a remote differs.
+var COLOR_CODES = {red: 398, green: 399, yellow: 400, blue: 401};   // KEY_RED, KEY_GREEN, KEY_YELLOW, KEY_BLUE
+var colorByCode = {}, colorCfg = null, colorLast = {};
+
+// events.json is read once (it holds webhook addresses; the helper is restarted to change it): the power events, the colour buttons and the heartbeat all share it.
+var eventsCfg;
+function events () {
+	if (eventsCfg === undefined) {
+		try { eventsCfg = JSON.parse(fs.readFileSync(__dirname + '/events.json', 'utf8')); } catch (e) { eventsCfg = null; }
+	}
+	return eventsCfg;
+}
+function isUrl (u) { return typeof u === 'string' && /^https?:\/\//.test(u); }
+
+// A long-lived `luna-send -i` subscription, one message per line, started again 5 s after it ends (the service restarted, or luna-send could not start).
+function followLuna (uri, params, onLine) {
+	var buf = '', restarted = false;
+	function again () { if (!restarted) { restarted = true; setTimeout(function () { followLuna(uri, params, onLine); }, 5000); } }
+	var child = cp.spawn('luna-send', ['-i', uri, JSON.stringify(params)], {stdio: ['ignore', 'pipe', 'ignore']});
+	child.stdout.on('data', function (d) {
+		buf += d;
+		var end;
+		while ((end = buf.indexOf('\n')) !== -1) { var line = buf.slice(0, end); buf = buf.slice(end + 1); onLine(line); }
+		if (buf.length > 8192) buf = '';
+	});
+	child.on('exit', again);
+	child.on('error', again);
+}
+
+// ---------- heartbeat ----------
+// "heartbeatWebhook" in events.json: every 5 minutes (and at start) a small POST tells Home Assistant the helper is alive. Home Assistant cannot see the absence of a webhook by itself:
+// an automation that fires on it keeps a "last_triggered" date, and another one raises the alarm when that date is old while the TV is on (see the README). The helper being absent
+// after a boot (see the field notes) is exactly what this catches.
+var HEARTBEAT_MS = 5 * 60 * 1000;
+function startHeartbeat () {
+	var cfg = events();
+	if (!cfg || !isUrl(cfg.heartbeatWebhook)) return;
+	function beat () {
+		postJson(cfg.heartbeatWebhook, {event: 'heartbeat', name: cfg.name || 'tv', version: VERSION, uptime: Math.round(os.uptime()), at: new Date().toISOString()}, 2);   // 2: one retry only, the next beat comes soon
+	}
+	beat();
+	setInterval(beat, HEARTBEAT_MS);
+	log('heartbeat: every ' + HEARTBEAT_MS / 60000 + ' min');
+}
+
+function configureColorKeys () {
+	var cfg = events();
+	var url = cfg && (cfg.keysWebhook || cfg.webhook);                // the buttons may have a webhook of their own (a webhook id serves one automation trigger)
+	if (!cfg || !isUrl(url) || !Array.isArray(cfg.keys)) return;
+	var codes = Object.assign({}, COLOR_CODES, cfg.keyCodes || {});
+	cfg.keys.forEach(function (k) { if (codes[k]) colorByCode[codes[k]] = k; });
+	colorCfg = cfg;
+	log('colour buttons: ' + cfg.keys.filter(function (k) { return codes[k]; }).join(', ') + ' go to ' + (cfg.keysWebhook ? 'their own webhook' : 'the webhook'));
+}
+function onColorKey (code) {
+	var k = colorByCode[code];
+	if (!k || !colorCfg) return;
+	var now = Date.now();
+	if (colorLast[k] && now - colorLast[k] < 500) return;            // one press is one event
+	colorLast[k] = now;
+	log('colour button ' + k + ' pressed');
+	postJson(colorCfg.keysWebhook || colorCfg.webhook, {event: 'key', key: k, name: colorCfg.name || 'tv', at: new Date().toISOString()}, 0);
 }
 
 // ---------- Back to TV Home ----------
@@ -316,6 +399,7 @@ function watchHome () {
 // is LG's. It never touches the app manager itself (restarting it makes the TV lose the soundbar's ARC). At most 3 launches in 30 s, so a
 // failing launch can never turn into a loop.
 var TV_HOME_APP = 'com.boring.tvhome';
+var lgHomeUntil = 0;               // while it is in the future, LG's home is let stay in front (the Apps tab's shortcut asked for it)
 var launches = [];
 
 function openTvHome () {
@@ -330,20 +414,10 @@ function openTvHome () {
 
 function watchForeground () {
 	if (homeIsTvHome()) return;         // the substitution already makes LG's home id open TV Home
-	var buf = '';
-	var child = cp.spawn('luna-send', ['-i', APPMGR + 'getForegroundAppInfo', '{"subscribe":true}'], {stdio: ['ignore', 'pipe', 'ignore']});
-	child.stdout.on('data', function (d) {
-		buf += d;
-		var end;
-		while ((end = buf.indexOf('\n')) !== -1) {      // one JSON message per line
-			var msg = buf.slice(0, end);
-			buf = buf.slice(end + 1);
-			var m = /"appId"\s*:\s*"([^"]*)"/.exec(msg);
-			if (m && m[1] === HOME_APP) openTvHome();
-		}
-		if (buf.length > 8192) buf = '';
+	followLuna(APPMGR + 'getForegroundAppInfo', {subscribe: true}, function (msg) {
+		var m = /"appId"\s*:\s*"([^"]*)"/.exec(msg);
+		if (m && m[1] === HOME_APP && Date.now() > lgHomeUntil) openTvHome();
 	});
-	child.on('exit', function () { setTimeout(watchForeground, 5000); });
 	log('foreground: following the foreground app');
 }
 
@@ -399,49 +473,54 @@ function makePowerHandler(emit) {
 }
 // </power-handler>
 
+function what(body) { return body.event === 'key' ? 'button ' + body.key : body.event === 'heartbeat' ? 'heartbeat' : 'power event ' + body.event; }   // for the log
 function postJson(urlString, body, tries) {
-	var u = require('url').parse(urlString), data = JSON.stringify(body);
-	var req = (u.protocol === 'https:' ? require('https') : http).request({
+	var u = urlLib.parse(urlString), data = JSON.stringify(body);
+	var req = (u.protocol === 'https:' ? https : http).request({
 		hostname: u.hostname, port: u.port, path: u.path, method: 'POST', timeout: 4000,
 		headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data)}
 	}, function (res) {
 		res.resume();
-		if (res.statusCode >= 200 && res.statusCode < 300) return log('power event ' + body.event + ' sent (' + res.statusCode + ')');
+		if (res.statusCode >= 200 && res.statusCode < 300) return body.event === 'heartbeat' ? 0 : log(what(body) + ' sent (' + res.statusCode + ')');   // a heartbeat every 5 minutes is not worth a line
 		retry('HTTP ' + res.statusCode);
 	});
 	req.on('timeout', function () { req.destroy(new Error('timeout')); });
 	req.on('error', function (e) { retry(e.message); });
 	req.end(data);
 	function retry(why) {
-		if (tries >= 3) return log('power event ' + body.event + ' not delivered: ' + why);
+		if (tries >= 3) return log(what(body) + ' not delivered: ' + why);
 		setTimeout(function () { postJson(urlString, body, tries + 1); }, tries * 2500);   // a TV waking up may not have its network yet
 	}
 }
 
+function isOn (state) { return state === 'Active' || state === 'ScreenSaver'; }
+
 function watchPower() {
-	var cfg;
-	try { cfg = JSON.parse(fs.readFileSync(__dirname + '/events.json', 'utf8')); } catch (e) { return log('power events: no events.json, nothing is sent'); }
-	if (!cfg || typeof cfg.webhook !== 'string' || !/^https?:\/\//.test(cfg.webhook)) return log('power events: events.json needs a "webhook" URL');
-	var wanted = Array.isArray(cfg.events) ? cfg.events : ['off_requested', 'off', 'on_requested', 'on'];
-	var handler = makePowerHandler(function (ev) {
-		if (wanted.indexOf(ev.event) < 0) return;
-		ev.name = cfg.name || 'tv'; ev.at = new Date().toISOString();
-		log('power event ' + ev.event + ' (' + ev.power_state + (ev.processing ? ' / ' + ev.processing : '') + ')');
-		postJson(cfg.webhook, ev, 0);
-	});
-	var buf = '';
-	var child = cp.spawn('luna-send', ['-i', POWER + 'getPowerState', '{"subscribe":true}'], {stdio: ['ignore', 'pipe', 'ignore']});
-	child.stdout.on('data', function (d) {
-		buf += d;
-		var end;
-		while ((end = buf.indexOf('\n')) !== -1) {      // one JSON message per line
-			var line = buf.slice(0, end); buf = buf.slice(end + 1);
-			try { handler(JSON.parse(line)); } catch (e) { /* not a message */ }
+	var cfg = events(), handler = null;
+	if (!cfg) log('power events: no events.json, nothing is sent');
+	else if (!isUrl(cfg.webhook)) log('power events: events.json needs a "webhook" URL');
+	else {
+		var wanted = Array.isArray(cfg.events) ? cfg.events : ['off_requested', 'off', 'on_requested', 'on'];
+		handler = makePowerHandler(function (ev) {
+			if (wanted.indexOf(ev.event) < 0) return;
+			ev.name = cfg.name || 'tv'; ev.at = new Date().toISOString();
+			log('power event ' + ev.event + ' (' + ev.power_state + (ev.processing ? ' / ' + ev.processing : '') + ')');
+			postJson(cfg.webhook, ev, 0);
+		});
+		log('power events: watching, sending to ' + cfg.webhook.replace(/\/api\/webhook\/.*/, '/api/webhook/…'));
+	}
+	// Followed even without events.json: standby must close the light idle screen whatever is configured.
+	var wasOn = true;
+	followLuna(POWER + 'getPowerState', {subscribe: true}, function (line) {
+		var m;
+		try { m = JSON.parse(line); } catch (e) { return; }      // not a message
+		if (m && typeof m.state === 'string') {
+			var on = isOn(m.state.replace(/\s+/g, ''));
+			if (!on && (wasOn || liteUp)) closeLite(true);       // standby: nothing must be left up for the next power-on (also when this service was restarted while the screen was up)
+			wasOn = on;
 		}
-		if (buf.length > 8192) buf = '';
+		if (handler) handler(m);
 	});
-	child.on('exit', function () { setTimeout(watchPower, 5000); });
-	log('power events: watching, sending to ' + cfg.webhook.replace(/\/api\/webhook\/.*/, '/api/webhook/…'));
 }
 
 // ---------- HTTP ----------
@@ -454,10 +533,22 @@ function reply (res, status, body) {
 	res.end(JSON.stringify(body));
 }
 
-function readBody (req, cb) {
-	var body = '';
-	req.on('data', function (c) { body += c; if (body.length > 32768) req.destroy(); });
-	req.on('end', function () { try { cb(JSON.parse(body || '{}')); } catch (e) { cb({}); } });
+var MAX_BODY = 262144;       // the biggest legitimate body is the idle screen's picture list, ~60 KB
+
+function readBody (req, res, cb) {
+	var chunks = [], size = 0, over = false;
+	req.on('data', function (c) {
+		if (over) return;
+		size += c.length;
+		if (size > MAX_BODY) { over = true; chunks = []; return reply(res, 413, {returnValue: false, errorText: 'body too large'}); }
+		chunks.push(c);
+	});
+	req.on('end', function () {
+		if (over) return;
+		var params = {};
+		try { params = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch (e) { /* no parameters */ }
+		cb(params && typeof params === 'object' ? params : {});
+	});
 }
 
 // Trakt for the page: the TV page has no web origin ("null"), so Trakt's CORS rules would refuse its calls. The page sends them here instead.
@@ -467,11 +558,11 @@ function traktCall (p) {
 	return new Promise(function (ok) {
 		var path = String(p.path || ''), method = p.method === 'GET' ? 'GET' : 'POST';
 		if (path.indexOf('..') >= 0 || !/^\/(oauth|sync|users|shows|scrobble)\/[A-Za-z0-9_\/?=&.-]*$/.test(path)) return ok({returnValue: false, errorText: 'path not allowed'});
-		var u = require('url').parse(TRAKT_URL + path), data = method === 'POST' ? JSON.stringify(p.body || {}) : '';
+		var u = urlLib.parse(TRAKT_URL + path), data = method === 'POST' ? JSON.stringify(p.body || {}) : '';
 		var h = {'Content-Type': 'application/json', 'User-Agent': 'TVHome/' + VERSION + ' (webOS)', 'trakt-api-version': '2', 'trakt-api-key': String(p.clientId || '')};   // Trakt's front door refuses requests without a User-Agent
 		if (p.token) h.Authorization = 'Bearer ' + p.token;
 		if (data) h['Content-Length'] = Buffer.byteLength(data);
-		var req = (u.protocol === 'https:' ? require('https') : http).request({hostname: u.hostname, port: u.port, path: u.path, method: method, headers: h, timeout: 15000}, function (res) {
+		var req = (u.protocol === 'https:' ? https : http).request({hostname: u.hostname, port: u.port, path: u.path, method: method, headers: h, timeout: 15000}, function (res) {
 			var text = '';
 			res.setEncoding('utf8');
 			res.on('data', function (c) { if (text.length < 2e6) text += c; });
@@ -489,6 +580,50 @@ function traktCall (p) {
 // the request is refused and TV Home is launched with {ambient: true}: it shows its idle screen from whatever app was in front (the page leaves it with any key).
 // If the page cannot show it (no pictures yet), it says so and the next request is let through for a minute, so the screen never stays still and bare.
 var ambientTakeover = false, lgAllowUntil = 0;
+// What the idle screen shows (pictures, titles, clock settings) is sent by TV Home's page along with /ambient, and kept here for the light idle screen (ambient/ in the repo,
+// app com.boring.tvhome.ambient): a small app declared as a "screenSaver" window, like LG's. TV Home itself is a whole web app (rows, pictures, scripts): started in front of
+// another app it takes the memory of the TV (2 GB, nearly all used) and the system suspends the app that was there; a music app stops playing. The light one is a slideshow and a clock
+// and nothing else, and like LG's screensaver it gets the keys, so the press that wakes the screen does not reach the music app either.
+var LITE_APP = 'com.boring.tvhome.ambient';
+var ambientData = null, ambientSig = '', liteUp = 0;
+var AMBIENT_FILE = __dirname + '/ambient.json';       // the same, on the flash: TV Home is not always running (the system closes it in the background when memory is short) nor is this service the same one as before a restart
+try { var saved = JSON.parse(fs.readFileSync(AMBIENT_FILE, 'utf8')); ambientData = saved.data || null; ambientSig = saved.sig || ''; ambientTakeover = saved.on === true; } catch (e) { /* nothing yet */ }
+// Flash is written when something changed, at most every 30 minutes (the pictures change slowly), and at once when the setting changes or the service is stopped.
+var AMBIENT_SAVE_MS = 30 * 60e3, ambientSaved = Date.now(), ambientDirty = false, ambientSaveT = 0;
+function flushAmbient () {
+	clearTimeout(ambientSaveT); ambientSaveT = 0;
+	if (!ambientDirty) return;
+	ambientDirty = false; ambientSaved = Date.now();
+	try { fs.writeFileSync(AMBIENT_FILE, JSON.stringify({on: ambientTakeover, sig: ambientSig, data: ambientData})); } catch (e) { /* convenience */ }
+}
+function saveAmbient (now) {
+	ambientDirty = true;
+	if (ambientSaveT && !now) return;
+	clearTimeout(ambientSaveT);
+	ambientSaveT = setTimeout(flushAmbient, now ? 0 : Math.max(0, ambientSaved + AMBIENT_SAVE_MS - Date.now()));
+}
+function closeLite (force) {
+	if (!liteUp && !force) return Promise.resolve();
+	liteUp = 0;
+	return luna(APPMGR + 'closeByAppId', {id: LITE_APP}).then(function (r) { log('screensaver: light idle screen closed (' + r.returnValue + ')'); });
+}
+function onAnyKey (code) {
+	if (!liteUp) return;
+	if (code === HOME_CODE) return void closeLite();
+	if (Date.now() - liteUp > 4000) setTimeout(function () { if (liteUp) closeLite(); }, 1500);   // the page leaves by itself on a key (/ambient/leave); this is only the net under it
+}
+function launchAmbient () {
+	return luna(APPMGR + 'getForegroundAppInfo', {}).then(function (f) {
+		var items = ambientData && ambientData.items;
+		var tvHome = function () { return luna(APPMGR + 'launch', {id: TV_HOME_APP, params: {ambient: true, at: Date.now()}}); };
+		if (!items || !items.length || (f && f.appId === TV_HOME_APP)) return tvHome();       // TV Home already in front: nothing to suspend, its own page shows the screen
+		liteUp = Date.now();
+		return luna(APPMGR + 'launch', {id: LITE_APP, params: {at: Date.now()}}).then(function (r) {
+			log('screensaver: light idle screen over ' + (f && f.appId) + ' -> ' + r.returnValue + (r.errorText ? ', ' + r.errorText : ''));
+			if (!r.returnValue) { liteUp = 0; return tvHome(); }
+		});
+	});
+}
 function onScreenSaverRequest (msg) {
 	log('screensaver: message ' + msg.replace(/\s+/g, ' ').slice(0, 220));   // everything the power service sends, to see its whole protocol
 	var ts = /"timestamp"\s*:\s*"?(\d+)"?/.exec(msg), st = /"state"\s*:\s*"([^"]*)"/.exec(msg);
@@ -497,7 +632,7 @@ function onScreenSaverRequest (msg) {
 	luna(POWER + 'responseScreenSaverRequest', {clientName: 'tvhome', ack: !ours, timestamp: ts[1]}).then(function (r) {
 		log('screensaver: request ' + ts[1] + ' -> ' + (ours ? 'TV Home' : 'LG') + ' (' + r.returnValue + (r.errorText ? ', ' + r.errorText : '') + ')');
 		if (!(ours && r.returnValue)) return;
-		luna(APPMGR + 'launch', {id: TV_HOME_APP, params: {ambient: true, at: Date.now()}});
+		launchAmbient();
 		// A refusal alone does not stop it: the power service goes on to "Screen Saver Ready" and starts LG's app about 4 s later, unless something cancels it ("Received
 		// turnOnScreen at Screen Saver Ready. Go to Active" in tvpowerd). Launching TV Home does it when TV Home was behind another app; when its idle screen is already up
 		// nothing happens and LG's screensaver came on anyway (seen: twice). So the screen is "turned on" (it is already on: it only cancels the launch) a few times
@@ -530,7 +665,8 @@ var GET = {
 	'/status': function () { return Promise.resolve({returnValue: true, service: 'launcher', version: VERSION}); },
 	'/apps': function () { return listApps().then(function (apps) { return {returnValue: true, apps: apps}; }); },
 	'/state': state,
-	'/inputs': inputs
+	'/inputs': inputs,
+	'/ambient/data': function () { return Promise.resolve(ambientData ? Object.assign({returnValue: true}, ambientData) : {returnValue: false}); }
 };
 
 var POST = {
@@ -540,12 +676,61 @@ var POST = {
 	'/volume': function (p) { return volume(p.action); },
 	'/screen': function (p) { return setScreen(p.on === true); },
 	'/trakt': traktCall,
-	// the page says whether TV Home's idle screen should replace LG's screensaver (Settings → Ambient mode is not Off); said again at each start and each change
-	'/ambient': function (p) { ambientTakeover = p.on === true; log('screensaver: TV Home takes over = ' + ambientTakeover); return Promise.resolve({returnValue: true, takeover: ambientTakeover}); },
+	// LG's own home, on request: the foreground watcher would send straight back to TV Home, so it is told to leave it alone for a minute and a half
+	'/lghome': function () {
+		lgHomeUntil = Date.now() + 90000;
+		log('LG home requested');
+		return luna(APPMGR + 'launch', {id: HOME_APP});
+	},
+	// Uninstalls an app, only one of removableApps() (never a system app, TV Home, or what starts this service). The page asks for a second OK before it calls this. The removal
+	// goes on after the call returns: this waits until the app is gone from the TV's list, so the page can redraw.
+	'/uninstall': function (p) {
+		var id = String(p.id || '');
+		return removableApps().then(function (can) {
+			var kind = can[id];
+			if (!kind) { log('uninstall: ' + id + ' refused'); return {returnValue: false, errorText: 'this app cannot be uninstalled'}; }
+			log('uninstall: ' + id + ' (' + kind + ')');
+			return luna('luna://com.webos.appInstallService/' + (kind === 'dev' ? 'dev/' : '') + 'remove', {id: id}).then(function (r) {
+				if (!r.returnValue) { log('uninstall: ' + id + ' failed: ' + r.errorText); return r; }
+				return new Promise(function (done) {
+					var tries = 0;
+					(function gone () {
+						luna(APPMGR + 'getAppInfo', {id: id}).then(function (info) {
+							if (!info.returnValue) { appsCache = {at: 0, apps: []}; log('uninstall: ' + id + ' removed'); return done({returnValue: true, removed: true}); }
+							if (++tries >= 30) { log('uninstall: ' + id + ' still there after 30 s'); return done({returnValue: false, errorText: 'still installed'}); }
+							setTimeout(gone, 1000);
+						});
+					})();
+				});
+			});
+		});
+	},
+	// the page says whether TV Home's idle screen should replace LG's screensaver (Settings → Ambient mode is not Off); said again at each start and each change.
+	// The pictures are sent only when they changed: the page sends a short signature of its list ("sig") every couple of minutes, and the answer says "need" when the helper has
+	// no pictures yet (it was restarted) or another list: only then does the page build and send them (~60 KB).
+	'/ambient': function (p) {
+		var on = p.on === true, hasData = p.data && Array.isArray(p.data.items) && p.data.items.length, sig = typeof p.sig === 'string' ? p.sig.slice(0, 64) : '';
+		var setting = on !== ambientTakeover, pictures = hasData && (!sig || sig !== ambientSig || !ambientData);
+		ambientTakeover = on;
+		if (pictures) { ambientData = p.data; ambientSig = sig; }
+		if (setting || pictures) {
+			saveAmbient(setting);                                                // a change of the setting is written at once
+			log('screensaver: TV Home takes over = ' + ambientTakeover + (hasData ? ', ' + p.data.items.length + ' pictures' : ''));
+		}
+		return Promise.resolve({returnValue: true, takeover: ambientTakeover, need: on && (!ambientData || (!!sig && sig !== ambientSig))});
+	},
+	// the light idle screen is done: a key was pressed (open: the number of the title on screen when OK was pressed on it, to open its page in TV Home, which gets the whole title)
+	'/ambient/leave': function (p) {
+		return closeLite().then(function () {
+			var it = typeof p.open === 'number' && ambientData && ambientData.items[p.open];
+			if (!it || !it.it) return {returnValue: true};
+			return luna(APPMGR + 'launch', {id: TV_HOME_APP, params: {ambientOpen: true, item: it.it, at: Date.now()}});
+		});
+	},
 	// the page could not show its idle screen: LG's one may start (the next request goes through)
 	'/ambient/failed': function () {
 		lgAllowUntil = Date.now() + 60000; log('screensaver: TV Home could not show its idle screen, LG\'s one is allowed');
-		return luna(POWER + 'turnOnScreenSaver', {});
+		return closeLite().then(function () { return luna(POWER + 'turnOnScreenSaver', {}); });
 	},
 	'/log': function (p) { log('perf ' + JSON.stringify(p.perf || {}).slice(0, 1500)); return Promise.resolve({returnValue: true}); }
 };
@@ -566,20 +751,22 @@ http.createServer(function (req, res) {
 	var path = req.url.split('?')[0];
 	if (req.method === 'GET' && path === '/mic') return mic(req, res);
 	var icon = /^\/icon\/(.+)$/.exec(path);
-	if (req.method === 'GET' && icon) return sendIcon(decodeURIComponent(icon[1]), res);
-	if (req.method === 'GET' && GET[path]) return GET[path]().then(function (r) { reply(res, 200, r); });
-	if (req.method === 'POST' && POST[path]) {
-		return readBody(req, function (params) { POST[path](params).then(function (r) { reply(res, 200, r); }); });
-	}
+	// a handler that throws or fails must still answer, or the page waits for its timeout
+	function answer (promise) { promise.then(function (r) { reply(res, 200, r); }, function (e) { log('handler failed: ' + (e && e.message || e)); reply(res, 500, {returnValue: false, errorText: 'failed'}); }); }
+	if (req.method === 'GET' && icon) { try { return sendIcon(decodeURIComponent(icon[1]), res); } catch (e) { return reply(res, 400, {returnValue: false, errorText: 'bad icon id'}); } }
+	if (req.method === 'GET' && GET[path]) return answer(Promise.resolve().then(GET[path]));
+	if (req.method === 'POST' && POST[path]) return readBody(req, res, function (params) { answer(Promise.resolve().then(function () { return POST[path](params); })); });
 	reply(res, 404, {returnValue: false, errorText: 'unknown method'});
 }).on('error', function (e) {
 	log('server error: ' + e.message);
 	process.exit(e.code === 'EADDRINUSE' ? 0 : 1);      // already running elsewhere: nothing to do
 }).listen(PORT, HOST, function () {
 	try { fs.writeFileSync('/tmp/launcher-service.pid', String(process.pid)); } catch (e) { /* ignore */ }
-	watchHome();
+	watchKeys();
 	watchForeground();
 	watchPower();
+	configureColorKeys();
+	startHeartbeat();
 	watchScreenSaver();
 	bootLaunch(0, 0);
 	log('listening on ' + HOST + ':' + PORT + ' (pid ' + process.pid + ')');

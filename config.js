@@ -37,6 +37,7 @@ window.CONFIG = {
     {id: 'com.webos.app.hdmi3', title: 'HDMI 3', color: '#3c4043'},
     {id: 'com.webos.app.hdmi4', title: 'HDMI 4', color: '#3c4043'},
     {id: 'com.webos.app.browser', title: 'Navigateur', color: '#1a73e8'},
-    {id: 'com.palm.app.settings', title: 'Réglages', icon: 'settings.png', color: '#5f6368'}
+    {id: 'com.palm.app.settings', title: 'Réglages', icon: 'settings.png', color: '#5f6368'},
+    {id: 'org.webosbrew.hbchannel', title: 'Homebrew Channel', icon: 'homebrew.png', color: '#262d3d'}   // only shown when installed; keeps it reachable when the helper service is not running (the full app list comes from it)
   ]
 };

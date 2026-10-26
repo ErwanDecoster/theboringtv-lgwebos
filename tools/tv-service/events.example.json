@@ -1,5 +1,18 @@
 {
   "webhook": "http://homeassistant.local:8123/api/webhook/CHANGE-ME-a-long-random-id",
+  "keysWebhook": "http://homeassistant.local:8123/api/webhook/CHANGE-ME-another-long-random-id",
   "name": "living_room",
-  "events": ["off_requested", "off", "on_requested", "on"]
+  "events": [
+    "off_requested",
+    "off",
+    "on_requested",
+    "on"
+  ],
+  "keys": [
+    "red",
+    "green",
+    "yellow",
+    "blue"
+  ],
+  "heartbeatWebhook": "http://homeassistant.local:8123/api/webhook/CHANGE-ME-a-third-long-random-id"
 }

@@ -42,7 +42,7 @@ svg { width: 32px; height: 32px; display: block; }
 
 /* screens */
 main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-index: 2;
-  transition: transform .4s cubic-bezier(.2,.8,.2,1); }
+  transition: transform .3s cubic-bezier(.2,.8,.2,1); }
 
 /* hero */
 #hero { position: relative; height: 640px; padding-top: 196px; width: 1000px; transition: opacity .3s; }
@@ -52,13 +52,12 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 #heroSub { font-size: 24px; color: #dadce0; line-height: 1.4; max-height: 68px; overflow: hidden; width: 860px; }
 #heroBtn { display: inline-block; margin-top: 26px; padding: 14px 34px; border-radius: 30px; font-size: 24px; font-weight: 500;
   background: rgba(232,234,237,.16); color: #e8eaed; transition: background .15s, color .15s, transform .15s; }
-#dots { display: none; }   /* the featured title rotates by itself: the dots were not something to aim at */
 .scrolled #hero { opacity: 0; }
 
 /* rows */
 .row { margin-bottom: 18px; }
 .row h3 { font-size: 24px; font-weight: 500; margin-bottom: 18px; color: #e8eaed; }
-.strip { white-space: nowrap; transition: transform .35s cubic-bezier(.2,.8,.2,1); height: 262px; }
+.strip { white-space: nowrap; transition: transform .25s cubic-bezier(.2,.8,.2,1); height: 262px; }
 .apps-row .strip { height: 216px; }
 
 .card { display: inline-block; vertical-align: top; position: relative; width: 352px; margin-right: 26px; }
@@ -80,7 +79,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 .app .cap { margin-top: 16px; font-size: 20px; color: #e8eaed; opacity: 0; transition: opacity .2s; white-space: nowrap; }
 
 /* focus */
-.focus .pic, .focus .disc { transform: scale(1.1); box-shadow: 0 0 0 5px #fff, 0 12px 30px rgba(0,0,0,.6); }
+.focus .pic, .focus .disc { transform: scale(1.1); box-shadow: 0 0 0 5px #fff; }   /* a ring, not a blurred shadow: nothing to re-rasterise on every move */
 .focus .cap { opacity: 1; }
 .focus.card .cap { color: #fff; }
 .tab.focus, .ico.focus, #heroBtn.focus { background: #e8eaed; color: #202124; }
@@ -165,10 +164,7 @@ main { position: absolute; top: 0; left: 0; width: 100%; padding: 0 72px; z-inde
 /* performance: own GPU layers for things that move, no blurred shadows on focus */
 main { will-change: transform; }   /* the row being moved gets its own layer from the script (heat() in app.js) */
 .card, .app { contain: layout style; }
-.focus .pic, .focus .disc { box-shadow: 0 0 0 5px #fff; }
 .card .ttl { text-shadow: 0 1px 3px rgba(0,0,0,.9); }
-main { transition-duration: .3s; }
-.strip { transition-duration: .25s; }
 
 /* full-screen overlays: pin to the 1920x1080 canvas like <body>, not the window (matters in narrow previews) */
 html #details, html #search, html #prof, html #ambient, html #bg, html #shade, html #qdim, html #sdim { width: 1920px; height: 1080px; }
@@ -228,7 +224,6 @@ html #details, html #search, html #prof, html #ambient, html #bg, html #shade, h
 /* the TV asks for less motion: no slow zoom on the ambient pictures, no drifting colour on the loading screen */
 @media (prefers-reduced-motion: reduce) {
   #ambient img { animation: none !important; }
-  #boot .sw { animation: none !important; }
 }
 
 .off { display: none !important; }

@@ -75,6 +75,8 @@ tested on a 55UR8040). Works with the arrow keys, OK and Back, the Magic Remote 
 - **Quick settings panel:** Wi-Fi, audio output, Bluetooth, volume, screensaver, inputs, picture and sound mode, brightness, screen off.
 - **Seen / not interested:** two more buttons on the details page; the "Recently finished" row; the suggestions learn from what you saw.
 - **Profiles:** each has its own settings, watchlist and history, plus a kids profile (family-friendly titles, some apps hidden).
+- **Apps tab:** hold OK on an app (or the pencil tile) for the edit mode: **Hide / show**, **Reorder** and, on a rooted TV, **Uninstall** (a second OK within 4 s confirms; only apps the TV itself says are removable, never LG's system apps, TV Home, its idle screen or the Homebrew Channel). A red **LG Home** tile opens LG's own home screen, which the helper otherwise sends straight back to TV Home (it lets it stay for 90 s).
+  Pressing Home from an app brings you back to the card you were on. Editing the list only redraws the grid, not the home rows (they are built when you go back to the home screen).
 - **Ambient mode:** a slideshow of artwork (only pictures sharp enough, full-size by default; Settings → Picture quality keeps the lighter ones) with the clock in bold, the date and the weather when the TV is idle.
   Any key leaves it; OK (or a pointer click, without moving the pointer) opens the details page of the title on screen. The "Screensaver" tile of the quick settings starts it
   (it used to start LG's own screensaver app, which did not hand the remote back reliably).
@@ -104,7 +106,7 @@ Turn on LG's Developer Mode (or use a rooted TV), install the [webOS CLI](https:
 and add your TV with `ares-setup-device`. Then:
 `-e` leaves a folder out of the package (dev tools, screenshots, upstream's optional `service/`, git data):
 ```bash
-ares-package . -e tools -e docs -e service -e .git -o /tmp --no-minify
+ares-package . -e tools -e docs -e service -e ambient -e .git -o /tmp --no-minify
 ```
 ```bash
 ares-install --device tv /tmp/com.boring.tvhome_*.ipk
@@ -112,6 +114,8 @@ ares-install --device tv /tmp/com.boring.tvhome_*.ipk
 ```bash
 ares-launch --device tv com.boring.tvhome
 ```
+`ambient/` is a second, tiny app (the light idle screen, see [LG's screensaver, replaced](#lgs-screensaver-replaced-rooted-tvs)): rooted TVs install it with `TV_HOST=root@<tv-ip> sh tools/tv-service/install-ambient.sh`.
+Without it TV Home's own idle screen is used everywhere, which is fine except over a music app (see below).
 Developer Mode installs expire after 50 hours unless you extend them in the Developer Mode app.
 On a rooted TV, installing an update does **not** restart anything (and never run `systemctl restart sam`: see the field notes).
 
@@ -226,7 +230,21 @@ luminance 119 to 48 and back. The two layers now live in a stacking context of t
 is not rebuilt when the fresh data equals the cache, so those rows only appeared after the next change. The Apps page had the same flaw (its grid was built before the app list had loaded: one tile). Both are rebuilt once
 the missing piece is known.
 
+**13. The helper did not start after a cold boot (once).** Symptoms: the Apps page shows only the apps listed in `config.js` (the full list comes from the helper), the quick settings say the service is needed, the colour buttons and the power events
+reach Home Assistant no more, `ssh` is refused. Unplugging the TV for a few seconds brought everything back. The first boot's logs were gone (`/tmp` and `/var/log` are emptied at each boot), so the cause was not established (a Wi-Fi outage that night, a system
+update that removed the elevation, or a start that failed are all possible). The helper now also writes `/media/developer/tv-service/service.log` (on the flash, 100 KB then `service.log.1`, no start-up timings): its first line, `start: helper v3, pid ..., the TV has been up N s`,
+is written at every start, so after a boot where it is missing the helper never started, and one where it is present and followed by a `stop:` or `uncaught:` line says how it ended. The Homebrew Channel is in the fallback app list, so it stays reachable when the helper is down.
+
 **12. LG's screensaver app does not hand the remote back reliably.** The quick-settings tile used to launch `com.webos.app.screensaver`; the app then could not always be left. The tile now starts TV Home's own ambient mode.
+
+**14. Launching a whole app over a music app suspends the music.** See [the light idle screen](#the-light-idle-screen-why-tv-home-itself-cannot-be-put-over-a-music-app): the window type does not matter, the weight of the app does.
+
+**15. Home went back to a card other than the one shown.** The Home key's relaunch drew the focus on the old card, then reset the position to the first app without drawing it again: the screen showed Apple Music selected and OK opened YouTube. The position is now kept (it starts over at the row of apps only when the page that was up was the Apps tab).
+
+**16. A hidden page does not run.** webOS freezes the timers of a web app that is not in front: anything the helper needs from the page (the idle screen's data, the setting) must be sent while the page is visible and kept by the helper.
+
+**17. Uninstalling.** `appInstallService/remove` (store apps) and `appInstallService/dev/remove` (developer-mode apps, under `/media/developer`) take `{id}`, answer at once and go on in the background (states `app closing`, `removing`...): the helper waits until the app is gone from `getAppInfo`. The TV marks LG's own apps `removable: false`/`systemApp: true`; Netflix, YouTube, Apple Music... are `removable: true`.
+The helper refuses TV Home, its idle screen and the Homebrew Channel even though the TV calls them removable.
 
 ## Voice dictation (optional)
 The search keyboard has a microphone key. The page reads the TV's microphone from the helper service, cuts a sentence at the silence, and sends it to
@@ -250,6 +268,14 @@ What we found and did (LG C4, relaunch with the cached home):
 - GPU memory: only the row being moved gets `will-change: transform` (a long row is ~14000 px wide); the Apple theme creates its focus sheen and shadow only on the focused tile and uses
   almost opaque panels instead of `backdrop-filter`.
 - Timers (clock, weather, washer) stop while the page is in the background; webOS keeps it alive after Home.
+- **Memory first.** The TV has 2 GB, nearly all used. Measured on the page (decoded size of the pictures in the DOM): the two background layers 63 MB, the hidden idle screen 51 MB, 78 cards of 500 px 41 MB: almost all of the 193 MB of the page. Layers and slides that are covered or hidden now let their picture go (page: 193 MB → ~100 MB after a restart,
+  the free memory of the TV went from ~105 MB to ~270 MB).
+- **Cold start.** The system closes TV Home in the background, so most opens are cold. The network refresh of the home is skipped when the cached home is less than 30 minutes old (about 30 requests fewer); the refresh's TMDB requests go through a queue of 4 that waits while another page is open, so a details page is not stuck behind them; the list of streaming providers is kept a week;
+  apps load in parallel with the rows; the first weather call waits 2.5 s.
+- **Details page** (it showed "Loading…" until one ~100 KB TMDB call returned, with no time limit): two parallel calls, the first (overview, runtime, genres, where to watch, trailer) paints the page and the buttons, the second (cast, "More like this") fills in afterwards; every call has a time limit and a failure says so; answers are slimmed to what is displayed (40 titles in memory) and the first one is kept 6 hours in `localStorage`
+  (`detailsA.v1`); the pictures list is the existing `refineBest` cache instead of the `images` payload. Trakt's start-up sync waits for the home screen and sends at most 3 TMDB calls at a time.
+- **Apps tab, edit mode.** Every press (enter, hide, move, uninstall, leave) used to rebuild the whole home (~210 cards, ~1500 elements) and, in chunks, the rest of it in the background, while the Apps tab was shown. Now only the grid is redrawn; the rows are built when the home screen comes back, and only if the list changed.
+- **Helper service.** One reader of the remote's key events instead of two (50 ms polling), one parse of `events.json`, shared luna subscriptions, a proper 413 on a body over 256 KB (a silent refusal at 32 KB once hid the idle screen's data).
 - Full-size pictures cost: a 3840x2160 backdrop is ~33 MB once decoded. They are fetched and decoded only for the picture that rests on screen (and the details page of the card that rests), never while a key is held,
   and the old layer stays under the new one instead of being hidden on a timer (a fixed timer raced the CSS fade on the slow CPU and showed a dark frame).
 
@@ -257,6 +283,7 @@ What we found and did (LG C4, relaunch with the cached home):
 With the helper service running (rooted TV), the page gets what a normal app can't. The service runs as root and calls a fixed list of system methods,
 which the page reaches over the TV's loopback (`127.0.0.1:45621`, host and origin checked):
 - **Your apps** shows every installed app with its real icon, not the list in `config.js`; **HDMI inputs** carry the name of what is plugged in (from `eim/getAllInputStatus`).
+- **Uninstall and LG Home** (Apps tab, see Features): `POST /uninstall {id}` and `POST /lghome`. The first only accepts apps the TV lists as removable and that are not in the helper's protected list (`KEEP_APPS`); the second launches LG's home and tells the foreground watcher to leave it alone for 90 s.
 - **Quick settings** gets picture mode, sound mode, brightness, a row of inputs and **Screen off**, which keeps audio playing; any remote key turns the screen back on.
 - Upstream's `service/service.js` (port 45620) is a second, separate helper. It does the deep-link id lookups (Prime Video, JioHotstar; without it those titles open the app's home)
   and `tools/tv` below talks to it for picture, sound and screen commands. Packaging and installing it is described in upstream's README.
@@ -278,15 +305,41 @@ LG's screensaver (`com.webos.app.screensaver`, a Flutter app started by the powe
 whatever app is in front, and TV Home's own idle screen only runs while TV Home is. The power service (`tvpowerd`) asks its clients before it starts the screensaver, so the helper service can answer:
 1. `tools/tv-service` registers with `luna://com.webos.service.tvpower/power/registerScreenSaverRequest` (`{subscribe: true, clientName: "tvhome"}`) and receives `{state: "Active", timestamp: "<text>"}`.
 2. It answers with `responseScreenSaverRequest` (`{clientName, ack, timestamp}`; **the timestamp must be sent as text**, a number is refused): `ack: false` stops LG's screensaver, `ack: true` lets it through.
-3. When TV Home asked to take over, the answer is `ack: false` and TV Home is launched with `{ambient: true, at: <time>}`; the page shows its idle screen (any key leaves it; the parameter is ignored when older than 20 s).
+3. When TV Home asked to take over, the answer is `ack: false` and the helper shows our idle screen: TV Home itself when TV Home is already in front (launched with `{ambient: true, at: <time>}`, the parameter is ignored when
+   older than 20 s), or **the light idle screen** (below) over any other app.
    **A refusal alone is not enough.** The power service goes on to its "Screen Saver Ready" state and starts LG's app about 4 s later, unless an event cancels it (`Received turnOnScreen at Screen Saver Ready. Go to Active` is in `tvpowerd`).
-   Launching TV Home from another app is such an event; when TV Home's idle screen is already up (it starts after 5 min, LG asks at 10) nothing happens and LG's screensaver came on anyway (seen twice, then reproduced).
+   Launching an app is such an event; when our idle screen is already up (TV Home's starts after 5 min, LG asks at 10) nothing happens and LG's screensaver came on anyway (seen twice, then reproduced).
    So the helper also calls `power/turnOnScreen` 0.6, 1.8 and 3 s after the refusal (the screen is already on: it only cancels the launch), and, 5.5 s after it, closes `com.webos.app.screensaver` if it came up anyway.
    (Power events for Home Assistant: the subscription says "Screen Saver" with a space, the one-shot call "ScreenSaver": both count as the TV being on.)
-4. TV Home tells the helper whether to do so (`POST /ambient {on}`): not when Settings → Ambient mode is Off, said again at each start, each change and every 10 minutes (the helper forgets it when it restarts).
-5. Safety: if the page cannot show its idle screen (no sharp picture known yet, 12 s of trying), it calls `POST /ambient/failed`; the next request is let through for a minute and `turnOnScreenSaver` is called, so the screen never stays still and bare.
+4. TV Home tells the helper whether to do so (`POST /ambient {on, sig}`): not when Settings → Ambient mode is Off, said again at each start, each change and every 2 minutes while the page is visible.
+5. Safety: if the idle screen cannot be shown (no sharp picture known yet, 12 s of trying; the light app: no data, or 8 pictures in a row failing), it calls `POST /ambient/failed`; the next request is let through for a minute and `turnOnScreenSaver` is called, so the screen never stays still and bare.
 The request/answer methods are not documented by LG (their names are in `tvpowerd`, the behaviour was seen on webOS 25 only): they may change with a firmware update, and nothing happens without the helper service.
 LG's own timer is unchanged: our idle screen starts after Settings → Ambient mode minutes while TV Home is in front, LG's request comes after `option.screenSaverTimer` minutes in front of another app.
+
+### The light idle screen: why TV Home itself cannot be put over a music app
+The first version launched TV Home over whatever app was in front. With **Apple Music** playing, the music stopped and the app no longer answered the remote afterwards. What we tried, each time with music playing and the idle screen forced
+(`power2/turnOnScreenSaver`), to find what LG's own screensaver does differently (it does not stop the music):
+
+| Test | Music |
+|---|---|
+| LG's own screensaver (`com.webos.app.screensaver`) | keeps playing |
+| TV Home launched over the music app (the first version) | **stops**, the app is then unresponsive |
+| A copy of TV Home declared as an `overlay` window (`defaultWindowType`) | **stops** (the app manager still reports the music app in front) |
+| The same copy declared as a `screenSaver` window, LG's own type | **stops** |
+| A near-empty page declared as a `screenSaver` window | **keeps playing**, and the page receives the remote's keys (the music app does not) |
+
+So neither the window type nor LG's launch call (`applicationManager/launch`, the same one) matters: **it is the weight of the app.** The TV has 2 GB of RAM, nearly all used (measured: 40 to 270 MB free, 400 to 520 MB of 600 MB of swap in use, with Netflix, YouTube, Apple Music and LG's home kept preloaded by the
+system); starting a whole TV Home (a web engine process of ~190 MB with its pictures) makes the system suspend the app that was in front.
+
+The fix is a second app, `ambient/` (`com.boring.tvhome.ambient`, invisible, no splash, `defaultWindowType: "screenSaver"`): one HTML file with the slideshow, the clock, the dimming veil and the drift, nothing else. The helper launches it over any app except TV Home:
+- **Data.** The light app has no data of its own; TV Home sends the list to the helper (`POST /ambient` with `data`: picture URLs, titles, a plain copy of each title, the clock/dimming settings and the weather's markup) and the light app reads it from `GET /ambient/data`.
+  To avoid sending ~60 KB every 2 minutes, the page sends a short signature of its list (`sig`); the helper answers `need` only when it holds nothing or another list. The helper writes it to `ambient.json` next to the script (at most every 30 min, at once when the setting changes), so a restart of
+  the helper does not lose it. **A page that is not visible is frozen by webOS** (its timers do not run), and the system closes TV Home in the background when memory is short: the helper holds the data, not the page.
+- **Keys.** A `screenSaver` window gets the remote like LG's: the first key does not reach the app underneath. The page leaves on any key, click or pointer move (`POST /ambient/leave`); OK on a title (after 1.5 s) opens that title's details page in TV Home, launched with the whole title (`{ambientOpen, item}`)
+  because TV Home has usually been closed meanwhile and starts cold. A net under it: the helper, which reads the remote's key events, closes the light app on any key, and on the Home key. Standby closes it too, even if the helper was restarted while it was up.
+- **Fallback.** No data, no light app installed, or a failed launch: TV Home is launched instead (the first version's behaviour).
+- **Memory.** Only one decoded 4K picture is kept at any time: the one under the new picture is released once the fade is over (`removeAttribute('src')`, ~32 MB each), in the light app, in TV Home's idle screen (which also lets both go once hidden: ~51 MB) and in the home's background layers (~32 MB).
+- **Seen, not explained:** a black square sometimes drifting with the picture on the idle screen. It looks like a tile of the picture that the GPU could not draw when memory was short; it was seen before the pictures were released, and has not been confirmed gone.
 
 ## Pictures: sharp, or none
 The TV page is drawn at 1920x1080 (device pixel ratio 1; the TV scales it to its 4K panel), so a picture that fills the screen is sampled from the file you give it: a 1280 px backdrop is
@@ -390,6 +443,69 @@ automation:
 `off_requested` is the earliest signal (use it for lights that should react as the screen goes dark); `off` is the safe "it is really off" one.
 Power loss or an unplugged TV sends nothing: keep HA's own availability check as the fallback.
 
+## Home Assistant: the remote's colour buttons
+The four colour buttons (red, green, yellow, blue) do nothing in TV Home. With a `"keys"` list in the same `events.json` as the power events (see `events.example.json`), a press is sent to the same webhook as
+`{"event": "key", "key": "red", "name": "living_room", "at": "..."}`, whichever app is in front: `tools/tv-service` already reads the remote's key events (`/dev/input`, read only) for the Home key, and the four buttons are the
+standard Linux key codes 398 (red), 399 (green), 400 (yellow) and 401 (blue) on the LG C4's remote (checked by listening to the keys on the TV). `"keyCodes": {"red": 398, ...}` overrides them for another remote. A press is one event
+(repeats within 0.5 s are ignored); only the buttons you list are sent; nothing is sent without `events.json`.
+A webhook id serves one automation trigger in Home Assistant, so the buttons can have a webhook of their own: add `"keysWebhook": "http://<ha>:8123/api/webhook/<another long random id>"` (without it they use `"webhook"`).
+Then one automation turns the webhook into an event and one automation per button listens to it, for example:
+```yaml
+- alias: "TV remote: colour buttons (router)"
+  mode: queued
+  triggers:
+    - trigger: webhook
+      webhook_id: CHANGE-ME-another-long-random-id
+      allowed_methods: [POST]
+      local_only: true
+  actions:
+    - event: tv_remote_key
+      event_data: {key: "{{ trigger.json.key }}"}
+
+- alias: "TV remote: red button"
+  triggers:
+    - trigger: event
+      event_type: tv_remote_key
+      event_data: {key: red}
+  actions:
+    - action: scene.turn_on
+      target: {entity_id: scene.living_room_evening}
+    - action: notify.lg_webos_tv_<your tv>        # a notification on the TV itself (LG webOS Smart TV integration)
+      continue_on_error: true
+      data: {message: "Evening scene"}
+```
+The buttons keep their usual job in apps that use them (teletext in live TV, for instance): the event is sent in addition.
+
+## Home Assistant: a heartbeat, to know when the helper is not running
+Once, after a cold boot, the helper did not start (see field note 13): nothing was sent to Home Assistant and nothing said so. With `"heartbeatWebhook"` in `events.json` (a webhook of its own: one webhook id serves one trigger),
+the helper sends `{"event": "heartbeat", "name", "version", "uptime", "at"}` at start and every 5 minutes (one retry, no log line per beat). Home Assistant cannot see a missing webhook by itself, so two automations: one receives the beat (its
+`last_triggered` date is the last time the helper was heard), the other raises the alarm when that date is old while the TV is on:
+```yaml
+- alias: "TV: helper heartbeat"
+  triggers:
+    - trigger: webhook
+      webhook_id: CHANGE-ME-a-third-long-random-id
+      allowed_methods: [POST]
+      local_only: true
+  actions:
+    - event: tv_home_heartbeat
+
+- alias: "TV: the helper is not answering"
+  triggers:
+    - trigger: template
+      value_template: >
+        {% set last = state_attr('automation.tv_helper_heartbeat', 'last_triggered') %}
+        {{ states('media_player.<your tv>') not in ['off', 'unavailable', 'unknown']
+           and (last is none or now() - as_datetime(last) > timedelta(minutes=12)) }}
+      for: "00:05:00"
+  actions:
+    - action: notify.<your phone>
+      data: {title: "TV Home", message: "The helper service is not answering: unplug the TV for a few seconds."}
+```
+The 5 minutes of `for` leave the helper time to start after a boot (it is up about 20 s after the TV).
+A webhook id is a secret: do not paste it anywhere public. To set one on the TV without typing it into a chat or a command line, `tools/tv-service/set-webhook.sh heartbeatWebhook` asks for it (hidden) and writes it into the TV's `events.json`
+(`keysWebhook` and `webhook` work the same way); the host is taken from the existing `webhook`.
+
 ## Deep links
 "Watch on …" opens the exact title, using the link format each app accepts (Prime's and JioHotstar's were captured
 from LG's own voice search):
@@ -445,6 +561,7 @@ Each feature lives in `features/<name>.js` + `features/<name>.css` and only talk
 | `TV.launch(appId, params)`, `TV.luna(uri, params)`, `TV.toast(msg)`, `TV.card(item)`, `TV.el`, `TV.esc` | UI / system helpers. |
 | `TV.store(key[, value])` | Per-profile JSON storage. |
 | `TV.fullOk(item)`, `TV.fullBg(item)`, `TV.noteBackdrops(item, backdrops)`, `TV.blurredBg(item)` | Full-screen pictures: does the title have a sharp one (see Pictures), its URL (or `''`), record TMDB's backdrop list for it, a `<canvas>` of its blurred art for a page that has no sharp picture. |
+| `TV.refineBest(list, quiet?)` | Learn the best picture of titles from TMDB (cached 30 days); `quiet`: through the home refresh's queue, nobody is waiting. |
 | `TV.prefetchDetails(item)` | Fetch a title's details and its decoded picture ahead (what the details page uses when a card rests). |
 | `TV.heroItems()`, `TV.view()`, `TV.idleSince()`, `TV.setBg(url)`, `TV.S`, `TV.C`, `TV.LANGS`, `TV.IMG` | State. |
 | `window.TV_PROFILE = {prefix, name, color, extraQ, hideApps}` | Set by `profiles.js` before `app.js` runs: storage prefix, avatar, extra TMDB discover query (e.g. kids certification), app ids to hide. |
