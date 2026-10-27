@@ -428,6 +428,7 @@ function bootLaunch (tries, launched) {
 // home even though TV Home was opened during the restart. At every power-on, check twice and open TV Home when one of those is in front;
 // any other app (an HDMI source, Netflix, ...) is left alone.
 function wakeLaunch () {
+	setTimeout(trimMemory, 15000);
 	[3000, 10000].forEach(function (delay) {
 		setTimeout(function () {
 			luna(APPMGR + 'getForegroundAppInfo', {}).then(function (r) {
@@ -436,6 +437,33 @@ function wakeLaunch () {
 				return luna(APPMGR + 'launch', {id: TV_HOME_APP}).then(function (l) { log('power on: ' + r.appId + ' in front, launch ' + TV_HOME_APP + ' -> ' + l.returnValue); });
 			}).catch(function () { /* the next check tries again */ });
 		}, delay);
+	});
+}
+
+// Memory. The TV has 2 GB and LG keeps what it likes loaded: it preloads some apps after every close and runs helpers nobody here uses, so TV Home gets
+// closed in the background and the idle screen's pictures fight for what is left. These switches live in memory only, so they are applied again at
+// every start, 2 minutes later (LG loads some apps late) and after every power-on.
+var TRIM_PRELOAD = ['amazon'];                           // apps LG must not preload (they still open normally, the first launch is a little slower)
+var TRIM_BINARIES = ['/usr/sbin/iconnectivity'];         // LG phone pairing / ThinQ helper: an empty file is mounted over it so it cannot start again
+function trimMemory () {
+	var fg = '';
+	luna(APPMGR + 'getForegroundAppInfo', {}).then(function (r) { fg = r.appId || ''; return luna(APPMGR + 'running', {}); }).then(function (run) {
+		var running = (run.running || []).map(function (a) { return a.id; });
+		return TRIM_PRELOAD.reduce(function (p, id) {
+			return p.then(function () { return luna('luna://com.webos.service.preloadmanager/setPreloadPolicy', {application: {id: id, isEnabled: false}}); }).then(function (s) {
+				if (!s.returnValue) return log('trim: preload of ' + id + ' not switched off (' + (s.errorText || '?') + ')');
+				if (running.indexOf(id) < 0 || id === fg) return;                  // never the app on screen
+				return luna(APPMGR + 'closeByAppId', {id: id}).then(function (c) { log('trim: ' + id + ' loaded in the background, closed -> ' + c.returnValue); });
+			});
+		}, Promise.resolve());
+	}).catch(function () { /* the next pass tries again */ });
+	var mounts = '';
+	try { mounts = fs.readFileSync('/proc/mounts', 'utf8'); } catch (e) { /* ignore */ }
+	TRIM_BINARIES.forEach(function (path) {
+		var name = path.split('/').pop();
+		function stop () { cp.execFile('pidof', [name], function (err, out) { String(out || '').split(/\s+/).filter(Boolean).forEach(function (pid) { try { process.kill(+pid); } catch (e) { /* gone */ } log('trim: ' + name + ' stopped'); }); }); }
+		if (mounts.indexOf(' ' + path + ' ') >= 0) return stop();
+		cp.execFile('mount', ['--bind', '/dev/null', path], function (err) { if (err) log('trim: ' + path + ' not neutralised (' + String(err.message).slice(0, 100) + ')'); else { log('trim: ' + path + ' neutralised'); stop(); } });
 	});
 }
 
@@ -768,5 +796,7 @@ http.createServer(function (req, res) {
 	configureColorKeys();
 	watchScreenSaver();
 	bootLaunch(0, 0);
+	trimMemory();
+	setTimeout(trimMemory, 120000);
 	log('listening on ' + HOST + ':' + PORT + ' (pid ' + process.pid + ')');
 });
