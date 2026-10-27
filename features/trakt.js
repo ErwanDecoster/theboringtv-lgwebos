@@ -95,8 +95,9 @@
   function pull() {
     return Promise.all([getAll('/sync/watched/movies'), getAll('/sync/watched/shows')]).then(function (r) {
       var map = {}, found = [];
-      r[0].forEach(function (x) { var id = tid(x.movie); if (id) { var at = Date.parse(x.last_watched_at) || Date.now(); map['movie:' + id] = at; found.push({type: 'movie', id: id, at: at}); } });
-      r[1].forEach(function (x) { var id = tid(x.show); if (id) { var at = Date.parse(x.last_watched_at) || Date.now(); map['tv:' + id] = at; found.push({type: 'tv', id: id, trakt: x.show.ids.trakt, at: at}); } });
+      // a title Trakt gives no date for goes last in "Continue watching": it must never be dated "now", which would put it first at every sync
+      r[0].forEach(function (x) { var id = tid(x.movie); if (id) { var at = Date.parse(x.last_watched_at) || Date.now(); map['movie:' + id] = at; found.push({type: 'movie', id: id, at: Date.parse(x.last_watched_at) || Date.parse(x.last_updated_at) || 0}); } });
+      r[1].forEach(function (x) { var id = tid(x.show); if (id) { var at = Date.parse(x.last_watched_at) || Date.now(); map['tv:' + id] = at; found.push({type: 'tv', id: id, trakt: x.show.ids.trakt, at: Date.parse(x.last_watched_at) || Date.parse(x.last_updated_at) || 0}); } });
       var n = TV.seen.merge(map);
       TV.store('traktSync', {at: Date.now(), count: Object.keys(map).length});
       found.sort(function (a, b) { return b.at - a.at; });

@@ -424,6 +424,21 @@ function bootLaunch (tries, launched) {
 	});
 }
 
+// The TV restarts every time it goes to standby, and may rewrite its "last input" to Live TV, so a power-on can land on Live TV or LG's
+// home even though TV Home was opened during the restart. At every power-on, check twice and open TV Home when one of those is in front;
+// any other app (an HDMI source, Netflix, ...) is left alone.
+function wakeLaunch () {
+	[3000, 10000].forEach(function (delay) {
+		setTimeout(function () {
+			luna(APPMGR + 'getForegroundAppInfo', {}).then(function (r) {
+				if (!r.returnValue || (r.appId !== 'com.webos.app.livetv' && r.appId !== HOME_APP)) return;
+				if (r.appId === HOME_APP && Date.now() < lgHomeUntil) return;      // LG Home asked for from TV Home
+				return luna(APPMGR + 'launch', {id: TV_HOME_APP}).then(function (l) { log('power on: ' + r.appId + ' in front, launch ' + TV_HOME_APP + ' -> ' + l.returnValue); });
+			}).catch(function () { /* the next check tries again */ });
+		}, delay);
+	});
+}
+
 // ---------- power events ----------
 
 // Tells Home Assistant (or any URL) when the TV goes off or comes on. Polling the TV is unreliable: with Quick Start+ it keeps its network up in
@@ -501,6 +516,7 @@ function watchPower() {
 		if (m && typeof m.state === 'string') {
 			var on = isOn(m.state.replace(/\s+/g, ''));
 			if (!on && (wasOn || liteUp)) closeLite(true);       // standby: nothing must be left up for the next power-on (also when this service was restarted while the screen was up)
+			if (on && !wasOn) wakeLaunch();
 			wasOn = on;
 		}
 		if (handler) handler(m);
