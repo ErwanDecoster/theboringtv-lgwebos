@@ -11,6 +11,7 @@ window.KEYS = {
   // Home Assistant: the washing machine pill and (without STT_URL) voice dictation through an Assist pipeline.
   // , HA_URL: 'http://homeassistant.local:8123'
   // , HA_TOKEN: ''                                   // a long-lived access token (HA profile page)
+  // , HA_PERSONS: {'person.alex': 'Alex', 'person.sam': 'Sam'}   // the profile follows who is home at power-on (name of a TV Home profile)
   // , HA_WASHER: {status: 'sensor.washer_machine_state', end: 'sensor.washer_completion_time', total: 'sensor.washer_total_time'}
   // , HA_STT_PIPELINE: 'Anna'                         // name of the Assist pipeline that has a speech-to-text engine
   // Trakt (optional, a watch history shared with your phone): create an app at https://trakt.tv/oauth/applications, redirect URI http://localhost (never used: sign-in is by code).

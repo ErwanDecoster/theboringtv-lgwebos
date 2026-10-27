@@ -157,6 +157,7 @@ Run them on the TV, e.g. `ssh root@<tv-ip> 'sh -s' < tools/tv-boot-settings/boot
 `boot-hybrid.sh` applies C, `boot-off.sh` goes back to A. Pick B if you wake the TV from standby all day and rarely lose power,
 C if cold starts matter more. Home Auto Launch is what makes the TV open LG's home by itself after power returns; it also decides
 whether the wake goes through LG's home. The black screen in B lasts until the Homebrew Channel runs its scripts (see the field notes).
+The TV also restarts at every standby, and its "last input" is sometimes rewritten to Live TV: at every power-on the helper checks twice (3 s and 10 s) and opens TV Home when Live TV or LG's home is in front. Any other app (an HDMI source, Netflix, ...) is left alone.
 
 ### Option 2: replace LG's home with a RAM copy (upstream's method; breaks eARC on some TVs)
 The packaging and install steps for Options 2 and 3 are upstream's (`ares-package . service …`, see its README); only the findings are repeated here.
@@ -258,6 +259,7 @@ How it is built for it (measured on the LG C4, relaunch with the cached home):
 - Timers (clock, weather, washer) stop while the page is in the background; webOS keeps it alive after Home.
 - **Memory first.** The TV has 2 GB, nearly all used. What fills the page is decoded pictures: the two background layers (63 MB if both keep a 4K picture), the idle screen's two slides (51 MB), 78 cards of 500 px (41 MB), out of ~193 MB for the page. So a layer or slide that is covered or hidden lets its picture go
   (`removeAttribute('src')`); the page then holds ~100 MB and the TV has ~270 MB free instead of ~105 MB.
+- **LG's own memory use.** The helper switches off the preload of Amazon (LG's preload manager otherwise loads it again after every close) and keeps LG's phone-pairing helper (`iconnectivity`) from starting, at every start, two minutes later and after every power-on; the app on screen is never closed. The apps still open normally, the first launch is a little slower. Together with the rest this frees about 140 MB of the TV's 2 GB.
 - **Cold start.** The system closes TV Home in the background, so most opens are cold. The network refresh of the home is skipped when the cached home is less than 30 minutes old (about 30 requests fewer); the refresh's TMDB requests go through a queue of 4 that waits while another page is open, so a details page is not stuck behind them; the list of streaming providers is kept a week;
   apps load in parallel with the rows; the first weather call waits 2.5 s.
 - **Details page:** two parallel calls, the first (overview, runtime, genres, where to watch, trailer) paints the page and the buttons, the second (cast, "More like this") fills in afterwards; every call has a time limit and a failure says so; answers are slimmed to what is displayed (40 titles in memory) and the first one is kept 6 hours in `localStorage`
@@ -466,6 +468,14 @@ The buttons keep their usual job in apps that use them (teletext in live TV, for
 
 A webhook id is a secret: do not paste it anywhere public. To set one on the TV without typing it into a chat or a command line, `TV_HOST=root@<tv-ip> tools/tv-service/set-webhook.sh keysWebhook` asks for it (hidden) and writes it into the TV's `events.json`
 (`webhook` works the same way); the host is taken from the existing `webhook`. The helper reads `events.json` at start: restart it afterwards.
+
+## Home Assistant: the profile follows who is home
+At every power-on TV Home asks Home Assistant which of your people are home. Exactly one: their profile opens (the "Who's watching?" question is not asked). Several people, nobody, a person Home Assistant does not know, or no answer within 8 s: the profile stays as it was.
+It reads the `person.*` entities over Home Assistant's WebSocket, the way the washing machine pill does, so it needs the same `HA_URL` and `HA_TOKEN` in `keys.js` (git-ignored) plus the people to follow, each with the name of a TV Home profile (case does not matter):
+```js
+, HA_PERSONS: {'person.alex': 'Alex', 'person.sam': 'Sam'}
+```
+The helper opens TV Home at power-on with `{wake: true}` as launch parameters, also when it is already in front; TV Home answers it at a cold start and on relaunch. Nothing happens at other launches (the Home key, an app returning), so a profile chosen by hand stays until the next power-on. Without `HA_PERSONS`, or with a single profile, nothing is asked.
 
 ## Deep links
 "Watch on …" opens the exact title, using the link format each app accepts (Prime's and JioHotstar's were captured

@@ -426,15 +426,19 @@ function bootLaunch (tries, launched) {
 
 // The TV restarts every time it goes to standby, and may rewrite its "last input" to Live TV, so a power-on can land on Live TV or LG's
 // home even though TV Home was opened during the restart. At every power-on, check twice and open TV Home when one of those is in front;
-// any other app (an HDMI source, Netflix, ...) is left alone.
+// any other app (an HDMI source, Netflix, ...) is left alone. TV Home is launched with {wake: true}, also when it is already in front: it then asks
+// Home Assistant who is home and picks their profile (features/profiles.js).
 function wakeLaunch () {
 	setTimeout(trimMemory, 15000);
+	var sent = false;
 	[3000, 10000].forEach(function (delay) {
 		setTimeout(function () {
 			luna(APPMGR + 'getForegroundAppInfo', {}).then(function (r) {
-				if (!r.returnValue || (r.appId !== 'com.webos.app.livetv' && r.appId !== HOME_APP)) return;
-				if (r.appId === HOME_APP && Date.now() < lgHomeUntil) return;      // LG Home asked for from TV Home
-				return luna(APPMGR + 'launch', {id: TV_HOME_APP}).then(function (l) { log('power on: ' + r.appId + ' in front, launch ' + TV_HOME_APP + ' -> ' + l.returnValue); });
+				if (!r.returnValue) return;
+				var front = r.appId, wrong = front === 'com.webos.app.livetv' || (front === HOME_APP && Date.now() >= lgHomeUntil);      // not while LG Home was asked for from TV Home
+				if (!wrong && !(front === TV_HOME_APP && !sent)) return;
+				sent = true;
+				return luna(APPMGR + 'launch', {id: TV_HOME_APP, params: {wake: true, at: Date.now()}}).then(function (l) { log('power on: ' + front + ' in front, launch ' + TV_HOME_APP + ' -> ' + l.returnValue); });
 			}).catch(function () { /* the next check tries again */ });
 		}, delay);
 	});

@@ -16,6 +16,43 @@
   function prefix(p) { return p.id === 'default' ? '' : p.id + '.'; }
   save();
   var cur = byId(localStorage.profile) || list[0];
+
+  // Who is home. At power-on the helper opens TV Home with {wake: true, at}; with HA_URL, HA_TOKEN and HA_PERSONS ({'person.x': 'profile name'}) in keys.js, TV Home then asks
+  // Home Assistant (its WebSocket, like the washing machine pill) which of those people are home. Exactly one: their profile. Several, nobody, a person Home Assistant does not
+  // know, or no answer within 8 s: the profile stays as it is. The parameters come at a cold start (here) and on relaunch (below); one older than 30 s is a stale one.
+  function wakeParams() {
+    var raw; try { raw = window.PalmSystem && window.PalmSystem.launchParams; } catch (e) { return false; }
+    var p; try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return false; }
+    return !!(p && p.wake && Date.now() - (p.at || 0) < 30000);
+  }
+  function followPresence() {
+    var K = window.KEYS || {}, persons = K.HA_PERSONS, ws, finished = false;
+    if (!K.HA_URL || !K.HA_TOKEN || !persons || list.length < 2) return;
+    var ids = Object.keys(persons);
+    function finish(chosen) {
+      if (finished) return; finished = true; clearTimeout(timer);
+      try { ws.close(); } catch (e) { /* already closed */ }
+      if (!chosen) return;
+      var n = String(chosen).toLowerCase(), pr = list.filter(function (x) { return String(x.name).toLowerCase() === n; })[0];
+      if (!pr) return;
+      markAsked();                                        // "Who's watching?" is answered by Home Assistant
+      if (pr.id !== cur.id) { localStorage.profile = pr.id; location.reload(); }
+    }
+    var timer = setTimeout(function () { finish(null); }, 8000);
+    try { ws = new WebSocket(K.HA_URL.replace(/^http/, 'ws') + '/api/websocket'); } catch (e) { return finish(null); }
+    ws.onmessage = function (m) {
+      var d; try { d = JSON.parse(m.data); } catch (e) { return; }
+      if (d.type === 'auth_required') ws.send(JSON.stringify({type: 'auth', access_token: K.HA_TOKEN}));
+      else if (d.type === 'auth_ok') ws.send(JSON.stringify({id: 1, type: 'subscribe_entities', entity_ids: ids}));
+      else if (d.type === 'auth_invalid') finish(null);
+      else if (d.type === 'event' && d.id === 1 && d.event && d.event.a) {
+        var home = ids.filter(function (id) { return d.event.a[id] && d.event.a[id].s === 'home'; });
+        finish(ids.every(function (id) { return d.event.a[id]; }) && home.length === 1 ? persons[home[0]] : null);
+      }
+    };
+    ws.onerror = function () { finish(null); };
+  }
+  if (wakeParams()) followPresence();
   window.TV_PROFILE = {prefix: prefix(cur), name: cur.name, color: cur.color, extraQ: cur.kids ? KIDS_Q : '', hideApps: cur.hideApps || []};
 
   // The question "who is watching?" is asked once per session: choosing a profile reloads the page, which must not ask it again.
@@ -187,6 +224,7 @@
         return false;
       }
     });
+    document.addEventListener('webOSRelaunch', function () { if (wakeParams()) followPresence(); });
     function openSwitcher() { markAsked(); TV.openView('profiles'); TV.rebuild(cardsRow, list.indexOf(cur)); }
     TV.onAvatar = openSwitcher;
     TV.addSetting({key: 'askProfile', title: 'Ask who’s watching at start', opts: [[true, 'On'], [false, 'Off']]}, false);
