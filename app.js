@@ -408,7 +408,7 @@
     var k = skey(x);
     seen = seen.filter(function (y) { return skey(y) !== k; });
     // finished: it leaves "Continue watching" (a title you marked yourself; what Trakt says is not used, a series there is "seen" from its first episode)
-    if (on) { recent = recent.filter(function (y) { return !y.tmdb || skey(y) !== k; }); store('recent', recent); }
+    if (on) { recent = recent.filter(function (y) { return !y.tmdb || skey(y) !== k; }); store('recent', recent); cont = cont.filter(function (y) { return !y.tmdb || skey(y) !== k; }); store('continueTrakt', cont); }
     if (on) { var c = slim(x); c.seenAt = Date.now(); seen.unshift(c); seen = seen.slice(0, 200); skipped = skipped.filter(function (y) { return skey(y) !== k; }); store('skipped', skipped); }
     else if (synced[k]) { delete synced[k]; store('syncedKeys', synced); }
     store('seen', seen);
@@ -450,14 +450,17 @@
     return Object.assign({}, row, {items: row.items.filter(function (it) { var k = it.tmdb && skey(it); return !it.tmdb || !(skipKeys[k] || (strict && seenKeys[k])); })});
   }
   // "Continue watching": what Trakt says you are in the middle of (when connected), then the titles you opened from here that you did not finish
-  var cont = store('continueTrakt') || [];
+  var cont = store('continueTrakt') || [], dismissed = store('contDismissed') || {};
   function continuing() {
     // One list, newest first, whatever the source. Trakt knows what you scrobbled or marked there (its date is when), TV Home knows what you opened from here (its date is when):
     // Crunchyroll and most apps tell Trakt nothing, so Trakt's dates can be weeks old for a series you started yesterday. A title in both keeps Trakt's card (next episode, progress)
-    // and the more recent of the two dates. Only what is finished leaves it: a series Trakt knows is "seen" from its first episode, so that alone does not remove it.
+    // and the more recent of the two dates. A movie you finished leaves it. A series you marked finished comes back when Trakt reports an episode you have not seen
+    // (a new one aired): Trakt's card is trusted, our own "opened" entries are not (marking it finished already dropped those). A title you removed by hand stays out until
+    // something newer than the removal happens to it (you open it again).
     var byKey = {}, out = [];
     function mine(x) { var k = skey(x); return seen.some(function (y) { return skey(y) === k; }); }
-    cont.forEach(function (x) { if (x.tmdb && !mine(x)) byKey[skey(x)] = x; });
+    // a finished series: only Trakt's "Up next" (an episode really waits) counts; a "Resume" is a pause Trakt kept from long ago and proves nothing
+    cont.forEach(function (x) { if (x.tmdb && (!mine(x) || (x.tmdb.type === 'tv' && /^Up next/.test(x.cap || '')))) byKey[skey(x)] = x; });
     recent.forEach(function (x) {
       if (!x.tmdb) return out.push(x);
       var k = skey(x);
@@ -466,9 +469,16 @@
       if (!t) byKey[k] = x;
       else if ((x.at || 0) > (t.at || 0)) byKey[k] = Object.assign({}, t, {at: x.at});
     });
-    Object.keys(byKey).forEach(function (k) { out.push(byKey[k]); });
+    Object.keys(byKey).forEach(function (k) { if (!(dismissed[k] && (byKey[k].at || 0) <= dismissed[k])) out.push(byKey[k]); });
     out.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
     return out.slice(0, 20);
+  }
+  function isContinuing(x) { var k = skey(x); return continuing().some(function (y) { return y.tmdb && skey(y) === k; }); }
+  // take a title off "Continue watching" by hand (on = false puts it back)
+  function dismissContinue(x, on) {
+    var k = skey(x);
+    if (on) dismissed[k] = Date.now(); else delete dismissed[k];
+    store('contDismissed', dismissed); buildRows();
   }
   function setContinue(list) { cont = list; store('continueTrakt', list); buildRows(); }
   function ago(t) {
@@ -1367,6 +1377,7 @@
     fullOk: fullOk, fullBg: fullBg, blurredBg: blurredBg, noteBackdrops: noteBackdrops, refineBest: refineBest,
     refreshAvatar: function () { $('avatar').classList.toggle('off', noAvatar()); buildNav(); },
     onOpened: null,                // set by watched.js: called with the title just opened from this screen
+    isContinuing: isContinuing, dismissContinue: dismissContinue,
     seen: {has: isSeen, skipped: isSkipped, mark: setSeen, skip: setSkipped, list: function () { return seen; }, merge: mergeSynced, importCards: importSeen,
       onChange: function (fn) { seenListeners.push(fn); }},
     addTab: function (label, viewName) {

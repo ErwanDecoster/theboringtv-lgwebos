@@ -85,8 +85,28 @@
       busy < 3 ? go() : waiting.push(go);
     }).then(fn).then(function (v) { busy--; if (waiting.length) waiting.shift()(); return v; }, function (e) { busy--; if (waiting.length) waiting.shift()(); throw e; });
   }
-  function card(type, id, extra) {
-    return slot(function () { return TV.tmdb(type + '/' + id); }).then(function (m) { return Object.assign(TV.fromTmdb(m), extra || {}); }, function () { return null; });
+  // `more(m)` may add fields from TMDB's raw answer (already fetched for the card: no extra request)
+  function card(type, id, extra, more) {
+    return slot(function () { return TV.tmdb(type + '/' + id); }).then(function (m) {
+      var c = Object.assign(TV.fromTmdb(m), extra || {});
+      return more ? Promise.resolve(more(m, c)).then(function () { return c; }, function () { return c; }) : c;
+    }, function () { return null; });
+  }
+  // When the next unseen episode aired, so a series that got a new episode is dated by it and not by the day you finished it. Asked as little as possible:
+  // TMDB's raw answer for the card names the last episode aired (usually the one), else one Trakt call per episode, then kept (an air date does not change).
+  // A failed call is retried after a day, so a Trakt hiccup is not repeated at every sync.
+  var AIRED = 'traktAired', aired = TV.store(AIRED) || {};
+  function airedAt(trakt, next, m) {
+    var k = trakt + ':' + next.season + 'x' + next.number, v = aired[k], last = m && m.last_episode_to_air;
+    if (v > 0) return Promise.resolve(v);
+    if (v < 0 && Date.now() + v < 864e5) return Promise.resolve(0);
+    function keep(t) {
+      aired[k] = t || -Date.now();
+      var ks = Object.keys(aired); if (ks.length > 150) ks.slice(0, ks.length - 150).forEach(function (o) { delete aired[o]; });
+      TV.store(AIRED, aired); return t;
+    }
+    if (last && last.season_number === next.season && last.episode_number === next.number && Date.parse(last.air_date)) return Promise.resolve(keep(Date.parse(last.air_date)));
+    return authed('GET', '/shows/' + trakt + '/seasons/' + next.season + '/episodes/' + next.number + '?extended=full').then(function (e) { return keep(Date.parse(e && e.first_aired) || 0); }, function () { return keep(0); });
   }
 
   // History, "Recently finished", "Continue watching". Everything watched becomes a "seen" key (never suggested again). For the 15 most recent
@@ -112,7 +132,10 @@
           if (!p || !(p.aired > 0)) return;
           if (p.completed >= p.aired) { if (listed['tv:' + e.id]) return; return card('tv', e.id, {seenAt: e.at}).then(function (c) { if (c) finishedCards.push(c); }); }
           var next = epLabel(p.next_episode);
-          return card('tv', e.id, {at: e.at, cont: true, src: 'Trakt', cap: 'Up next' + (next ? '  ·  ' + next : '')}).then(function (c) { if (c) continueCards.push(c); });
+          // dated by the later of "you last watched it" and "the next episode aired": an old unseen episode must not jump the queue, a new one must
+          return card('tv', e.id, {at: e.at, cont: true, src: 'Trakt', cap: 'Up next' + (next ? '  ·  ' + next : '')}, p.next_episode && p.next_episode.season != null ? function (m, c) {
+            return airedAt(e.trakt, p.next_episode, m).then(function (t) { if (t > c.at) c.at = t; });
+          } : null).then(function (c) { if (c) continueCards.push(c); });
         }, function () { /* this one is skipped */ }));
       });
       // movies and episodes paused part-way (kept by Trakt's scrobbling: only what a player reported)

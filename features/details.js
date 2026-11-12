@@ -200,6 +200,14 @@
         var on = !TV.seen.skipped(it); TV.seen.skip(it, on); ni.textContent = on ? '✓ Not interested' : '✕ Not interested';
         TV.toast(on ? 'We won’t suggest it again' : 'Suggestions allowed again');
       });
+      // a title that sits in "Continue watching" (a test, a series you gave up on) can be taken off the list; opening it again brings it back
+      if (TV.isContinuing(it)) {
+        var gone = false, rm = btn('Remove from Continue watching', function () {
+          gone = !gone; TV.dismissContinue(it, gone); rm.textContent = gone ? '✓ Removed (OK to undo)' : 'Remove from Continue watching';
+          if (gone) TV.toast('Removed from Continue watching');
+        });
+        btns.appendChild(rm);
+      }
       btns.appendChild(sn); if (ni) btns.appendChild(ni);   // a title you saw is already out of the suggestions: "not interested" would add nothing
     }
     box.querySelector('.dextra').textContent = extra;

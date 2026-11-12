@@ -60,7 +60,7 @@
   setTimeout(check, 4000);                       // the page may have been restarted while you were away
 
   // ---------- the row ----------
-  TV.addRow(function () { var l = TV.seen.list(); return l.length ? {title: 'Recently finished', items: l.slice(0, 20)} : null; });
+  TV.addRow(function () { var l = TV.seen.list().filter(function (x) { return !TV.isContinuing(x); }); return l.length ? {title: 'Recently finished', items: l.slice(0, 20)} : null; });
 
   // ---------- import file ----------
   // seen-import.js: window.SEEN_IMPORT = {id, items: [["movie:603", 1700000000000], ...]}; read once per file (by its id), kept as plain keys

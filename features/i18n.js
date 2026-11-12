@@ -69,6 +69,7 @@
     'Pictures are still loading': 'Les images sont encore en cours de chargement',
     'Picture quality': 'Qualité des images', 'High brings in the full-size pictures behind the home screen and in the ambient slideshow: sharper, a little slower to load. Standard keeps the lighter ones': 'Haute utilise les images en taille réelle derrière l’accueil et dans le diaporama d’ambiance : plus nettes, un peu plus lentes à charger. Standard garde les plus légères', 'High': 'Haute',
     'View details': 'Voir les détails',
+    'Remove from Continue watching': 'Retirer de « Continuer à regarder »', '✓ Removed (OK to undo)': '✓ Retiré (OK pour annuler)', 'Removed from Continue watching': 'Retiré de « Continuer à regarder »',
     'Mark as seen': 'Marquer comme vu', '○ Mark as seen': '○ Marquer comme vu', '✓ Seen': '✓ Vu', '✕ Not interested': '✕ Pas intéressé', '✓ Not interested': '✓ Pas intéressé',
     'Marked as seen': 'Marqué comme vu', 'Removed from seen': 'Retiré des titres vus', 'We won’t suggest it again': 'Nous ne le proposerons plus', 'Suggestions allowed again': 'Suggestions de nouveau autorisées',
     'Recently finished': 'Terminés récemment', 'Seen it?': 'Vu ?', 'You opened it a while ago. Did you watch it?': 'Vous l’avez ouvert il y a un moment. L’avez-vous regardé ?',
