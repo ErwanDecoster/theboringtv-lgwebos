@@ -424,6 +424,14 @@ function bootLaunch (tries, launched) {
 	});
 }
 
+// LG rewrites "last input" whenever another input is used (an HDMI source, Live TV), and the next power-on then lands on it: wakeLaunch leaves
+// those alone (a console may have woken the TV), so at every standby the last input is put back to TV Home. Settings only, nothing is launched.
+function rememberTvHome () {
+	luna('luna://com.webos.settingsservice/setSystemSettings', {category: 'general', settings: {lastInputApp: TV_HOME_APP, physicalLastInputApp: TV_HOME_APP}}).then(function (r) {
+		log('standby: last input set to ' + TV_HOME_APP + ' -> ' + r.returnValue);
+	}).catch(function () { /* the next standby tries again */ });
+}
+
 // The TV restarts every time it goes to standby, and may rewrite its "last input" to Live TV, so a power-on can land on Live TV or LG's
 // home even though TV Home was opened during the restart. At every power-on, check twice and open TV Home when one of those is in front;
 // any other app (an HDMI source, Netflix, ...) is left alone. TV Home is launched with {wake: true}, also when it is already in front: it then asks
@@ -548,6 +556,7 @@ function watchPower() {
 		if (m && typeof m.state === 'string') {
 			var on = isOn(m.state.replace(/\s+/g, ''));
 			if (!on && (wasOn || liteUp)) closeLite(true);       // standby: nothing must be left up for the next power-on (also when this service was restarted while the screen was up)
+			if (!on && wasOn) rememberTvHome();
 			if (on && !wasOn) wakeLaunch();
 			wasOn = on;
 		}
